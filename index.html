@@ -1,0 +1,906 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Historical borders map</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+  :root { --ink:#1d2a2e; --muted:#5d6b70; --line:#c9d2d4; --panel:#f7f8f7; --sea:#d7e3ea; }
+  * { box-sizing: border-box; }
+  html, body { height:100%; margin:0; font:15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; color:var(--ink); }
+  body { display:flex; }
+  aside { width:310px; flex:none; padding:18px; background:var(--panel); border-right:1px solid var(--line); overflow-y:auto; }
+  h1 { font-size:19px; margin:0 0 14px; }
+  label.t { display:block; font-weight:600; margin:16px 0 5px; }
+  select, input[type=text], input[type=number] { width:100%; padding:7px 9px; border:1px solid var(--line); border-radius:6px; font:inherit; background:#fff; }
+  input[type=color] { width:100%; height:36px; border:1px solid var(--line); border-radius:6px; background:#fff; padding:2px; }
+  input[type=range] { width:100%; }
+  #tickLabels { position:relative; height:16px; margin:-2px 0 6px; font-size:11px; color:#666; user-select:none; }
+  #tickLabels span { position:absolute; top:0; transform:translateX(-50%); white-space:nowrap; cursor:pointer; }
+  #tickLabels span::before { content:""; position:absolute; left:50%; top:-4px; height:3px; border-left:1px solid #999; }
+  output { display:block; font-size:34px; font-weight:700; line-height:1.1; margin-bottom:4px; }
+  .hint { color:var(--muted); font-size:13px; margin:5px 0 0; }
+  .btn, button { display:inline-block; padding:7px 12px; border:1px solid var(--ink); border-radius:6px; background:#fff; font:inherit; cursor:pointer; color:var(--ink); }
+  .btn:hover, button:hover { background:var(--ink); color:#fff; }
+  .btn:focus-within, button:focus-visible, input:focus-visible, select:focus-visible { outline:2px solid #2e7d5b; outline-offset:2px; }
+  #addbox { margin-top:10px; padding:10px; border:1px solid var(--line); border-radius:6px; background:#fff; }
+  #addbox label { display:block; margin:6px 0; }
+  ul { margin:6px 0 0; padding-left:0; list-style:none; font-size:13px; }
+  #customs li { display:flex; justify-content:space-between; gap:8px; padding:3px 0; border-bottom:1px solid var(--line); }
+  #customs button { padding:0 7px; font-size:13px; }
+  #matches { max-height:180px; overflow-y:auto; }
+  .dot { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:7px; }
+  .row { display:flex; gap:6px; margin-top:8px; }
+  .row input { flex:1; min-width:0; }
+  .btns { display:flex; gap:6px; flex-wrap:wrap; margin:2px 0 8px; }
+  #sels { max-height:230px; overflow-y:auto; }
+  #sels li { display:flex; align-items:center; gap:8px; padding:3px 0; border-bottom:1px solid var(--line); }
+  #sels li span { flex:1; }
+  #sels button, .swatch { padding:0 7px; font-size:13px; }
+  #sels input[type=color], #customs input[type=color] { width:30px; height:26px; padding:1px; flex:none; }
+  #customs li span { flex:1; }
+  .wikibox { background:#fff; border:1px solid var(--line); border-radius:6px; padding:8px 11px; font-size:13px; max-width:300px; box-shadow:0 1px 4px rgba(0,0,0,.2); }
+  .wikibox a { color:#1a5fb4; }
+  #status { margin-top:14px; font-size:13px; color:var(--muted); }
+  #map { flex:1; background:var(--sea); }
+  .leaflet-container { font-family:inherit; }
+  .leaflet-container path.leaflet-interactive, .leaflet-container path.leaflet-interactive:focus { outline:none; }
+  @media (max-width:720px) { body { flex-direction:column-reverse; } aside { width:100%; max-height:50%; border-right:0; border-top:1px solid var(--line); } }
+</style>
+</head>
+<body>
+<aside>
+  <h1>Historical borders</h1>
+
+  <label class="t" for="slider">Year</label>
+  <output id="yearOut" for="slider"></output>
+  <input type="range" id="slider" min="0" max="0" value="0" list="ticks">
+  <datalist id="ticks"></datalist>
+  <div id="tickLabels" aria-hidden="true"></div>
+  <div class="row"><button id="yearPrev" title="Previous available year (←)" aria-label="Previous available year">◀</button><button id="yearNext" title="Next available year (→)" aria-label="Next available year">▶</button></div>
+  <div class="row"><input type="number" id="yearIn" step="1" aria-label="Type a year" placeholder="Type a year, e.g. 1936"><button id="yearGo">Go</button></div>
+  <p class="hint" id="yearNote"></p>
+  <p class="hint" id="avail"></p>
+
+  <label class="t" for="addterm">Colored states</label>
+  <div class="btns"><button id="colorall">Color all states</button><button id="clearall">Clear all colors</button></div>
+  <ul id="sels"></ul>
+  <div class="row"><input type="text" id="addterm" placeholder="Add by name, e.g. Albania" spellcheck="false"><button id="addbtn">Add</button></div>
+  <p class="hint">Click an area on the map to color the whole state it belongs to, colonies included, with a different color for each state. Click a colored area again to remove the whole state. Change a color with its swatch. "Color all states" gives neighbouring states (even across a narrow strait) different colors and keeps the ones you chose. Territory names are the official English names of the time, with the controlling state in brackets; to add a state you can also type its common or earlier name (Turkey, Siam…). A lighter color marks a disputed territory, shown in the color of whoever controls it de facto. Clicking a territory also shows a link to its Wikipedia page.</p>
+
+  <label style="margin-top:16px"><input type="checkbox" id="coast" checked> Detailed coastline (Natural Earth 1:50m)</label>
+  <p class="hint">Clips the historical map to the real coastline and shows islands even where the dataset has none. Untick to see the original borders.</p>
+
+  <label style="margin-top:14px"><input type="checkbox" id="bg" checked> Physical background: relief, rivers, lakes</label>
+  <p class="hint">Requires the detailed coastline. Relief: Esri (hillshade); rivers and lakes: Natural Earth. Rivers switch from 1:50m to the more detailed 1:10m as you zoom in.</p>
+
+  <label class="t">Your maps</label>
+  <label class="btn">Load GeoJSON file<input type="file" id="file" accept=".geojson,.json,application/geo+json,application/json" hidden></label>
+  <div id="addbox" hidden>
+    <div id="fname" class="hint"></div>
+    <label>Which year does it refer to?<input type="number" id="cyear" min="-3000" max="2100"></label>
+    <label><input type="checkbox" id="cfull"> It is a complete world map (replaces the base map)</label>
+    <p class="hint">Without the tick, the file is an area drawn in the chosen color over the base map.</p>
+    <button id="cadd">Add</button> <button id="ccancel">Cancel</button>
+  </div>
+  <ul id="customs"></ul>
+
+  <div id="status">Loading…</div>
+  <label class="t">Colored territories</label>
+  <ul id="matches"></ul>
+</aside>
+<div id="map"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+// Base data: github.com/aourednik/historical-basemaps (approximate borders)
+// "De facto" corrections (indicative) applied on top of Natural Earth. CONTESTED = disputed territory: color of whoever controls it, lighter.
+// common: Abkhazia / South Ossetia / Transnistria -> Russia, the part of Western Sahara administered by Morocco.
+// y2025: occupied Ukraine (front line ~31/12/2025, ISW-style, approximate), Gaza east of the "yellow line" -> Israel.
+// y2020: separatist Donbas (stays Ukraine), Nagorno-Karabakh after the 2020 war (Armenia).
+// y2010 (31/12/2010, a patch on 2015): Natural Earth with Sudan and South Sudan merged, Crimea in Ukraine, Syria/Iraq whole, no Donbas split; Karabakh as in 2015.
+// y1975 (31/12/1975, a stand-alone patch): North and South Vietnam (17th parallel), Rhodesia (not recognized), Panama Canal Zone (US), Sinai east of 32.7E (indicative), Spanish Sahara, no TBVC, Walvis Bay inside South West Africa, colonies that became independent in 1976-1980.
+// y1980 (31/12/1980, a stand-alone patch): as 1985 but Chad whole with the Libyan-held Aouzou Strip, TBVC without Ciskei, Iranian territory held by Iraq (indicative, ~25,000 km2), Sinai east of the interim line (indicative), Israeli-backed Free Lebanon enclave (239 km2), Belize/Antigua/St Kitts/Brunei still British.
+// y1985 (31/12/1985, a stand-alone patch): East and West Germany (West Berlin from the real Wall trace, open data Berlin), North and South Yemen (current governorates), South West Africa under South African administration, Libyan-held northern Chad (north of the 16th parallel), TBVC at 1985 borders, Israeli security zone in Lebanon, Eritrea within Ethiopia, Pacific trust territories.
+// y1990 (31/12/1990, a stand-alone patch on Natural Earth): USSR, Yugoslavia and Czechoslovakia merged, Iraqi-occupied Kuwait, Libyan-held Aouzou Strip, South African Walvis Bay and TBVC homelands (afrith/historical-boundary-data), EPLF-held Eritrea, NPFL-held Liberia, smaller LTTE area, Palau as US trust territory.
+// y1995 (31/12/1995, a patch on 2010; the 2000/2005 areas are not used): Serb-held Eastern Slavonia, Republika Srpska, Israeli security zone in Lebanon, Afghanistan (Taliban / Dostum / government), Iraqi Kurdistan (also in 2000), LTTE area, Hong Kong and Macao as colonies, East Timor under Indonesia.
+// y2000 (31/12/2000, a patch on 2010; the 2005 areas are not used): DR Congo split (government / RCD-Goma / MLC), Northern Alliance areas in Afghanistan, larger LTTE area; East Timor UN-administered; Federal Republic of Yugoslavia.
+// y2005 (31/12/2005, a patch on 2010): Serbia and Montenegro (with Kosovo), St-Barthélemy/St-Martin in France, Netherlands Antilles, LTTE-held Vanni (Sri Lanka), rebel-held north of Côte d'Ivoire.
+// y2015 (31/12/2015, a patch on 2020): Nagorno-Karabakh + 7 occupied districts (Armenian-controlled), Islamic State (indicative, ~78,000 km2 per IHS, not recognized), Tiran/Sanafir still Egyptian.
+// Names in English. On screen (tooltip, list of colored territories) each year uses the official name of the time; the state that controls a
+// dependent, occupied or disputed territory is in brackets. Every territory also has a hidden continuity label tying it to its present-day
+// state (Siam -> Thailand, Gold Coast -> Ghana, Turkey -> Türkiye…): selection and colors follow that label, not the name of the moment.
+const NAMES_YEAR = {"China":[[0,"Qing Empire"],[1912,"China"]],"Madagascar":[[0,"French Madagascar"],[1958,"Malagasy Republic"],[1975,"Democratic Republic of Madagascar"],[1992,"Madagascar"]],"Egypt":[[0,"Egypt"],[1958,"United Arab Republic"],[1971,"Egypt"]],"Eq. Guinea":[[0,"Spanish Guinea"],[1968,"Equatorial Guinea"]],"Mauritius":[[0,"British Mauritius"],[1968,"Mauritius"]],"Burundi":[[0,"Kingdom of Burundi"],[1966,"Burundi"]],"Libya":[[0,"Kingdom of Libya"],[1969,"Libyan Arab Republic"],[1977,"Libya"]],"Solomon Is.":[[0,"British Solomon Islands"],[1975,"Solomon Islands"]],"Belize":[[0,"British Honduras"],[1973,"Belize"]],"São Tomé and Principe":[[0,"Portuguese São Tomé and Príncipe"],[1975,"São Tomé and Principe"]],"Guinea-Bissau":[[0,"Portuguese Guinea"],[1974,"Guinea-Bissau"]],"Mozambique":[[0,"Portuguese Mozambique"],[1975,"Mozambique"]],"Angola":[[0,"Portuguese Angola"],[1975,"Angola"]],"Hong Kong":[[0,"Hong Kong (United Kingdom)"],[1997,"Hong Kong (China)"]],"Macao":[[0,"Macao (Portugal)"],[2000,"Macao (China)"]],"Zaire":[[0,"Belgian Congo"],[1960,"Republic of the Congo (Léopoldville)"],[1994,"Zaire"],[2000,"Democratic Republic of the Congo"]],"Congo":[[0,"Middle Congo"],[1958,"Republic of the Congo"]],"Burma":[[0,"Burma"],[1989,"Myanmar"]],"Turkey":[[0,"Ottoman Empire"],[1920,"State of Turkey"],[1923,"Turkey"],[2022,"Türkiye"]],"Republic of Turkey":[[0,"Turkey"]],"Swaziland":[[0,"Swaziland"],[2018,"Eswatini"]],"eSwatini":[[0,"Swaziland"],[2018,"Eswatini"]],"Macedonia":[[0,"Macedonia"],[2019,"North Macedonia"]],"Timor-Leste":[[0,"Portuguese Timor"],[1975,"East Timor"],[1999,"East Timor (UN-administered)"],[2002,"Timor-Leste"]],"Serbia and Montenegro":[[0,"Federal Republic of Yugoslavia"],[2003,"Serbia and Montenegro"]],"Cabo Verde":[[0,"Portuguese Cape Verde"],[1975,"Cape Verde"],[2013,"Cabo Verde"]],"Cape Verde":[[0,"Cape Verde"],[2013,"Cabo Verde"]],"North Macedonia":[[0,"Macedonia"],[2019,"North Macedonia"]],"Czech Republic":[[0,"Czech Republic"],[2016,"Czechia"]],"Czechia":[[0,"Czech Republic"],[2016,"Czechia"]],"Ivory Coast":[[0,"Ivory Coast"],[1985,"Côte d'Ivoire"]],"Côte d'Ivoire":[[0,"Ivory Coast"],[1985,"Côte d'Ivoire"]],"Gambia":[[0,"Gambia"],[1965,"The Gambia"]],"Gambia, The":[[0,"Gambia"],[1965,"The Gambia"]],"Bahamas":[[0,"British Bahamas"],[1973,"The Bahamas"]],"Tanzania, United Republic of":[[0,"Tanganyika"],[1964,"Tanzania"]],"Tanzania":[[0,"Tanganyika"],[1964,"Tanzania"]],"Zambia":[[0,"Northern Rhodesia"],[1964,"Zambia"]],"Malawi":[[0,"Nyasaland"],[1964,"Malawi"]],"Zimbabwe":[[0,"Southern Rhodesia"],[1980,"Zimbabwe"]],"Botswana":[[0,"Bechuanaland"],[1966,"Botswana"]],"Lesotho":[[0,"Basutoland"],[1966,"Lesotho"]],"Ghana":[[0,"Gold Coast"],[1957,"Ghana"]],"Mali":[[0,"French Sudan"],[1960,"Mali"]],"Burkina Faso":[[0,"Upper Volta"],[1984,"Burkina Faso"]],"Benin":[[0,"Benin"],[1914,"Dahomey"],[1975,"Benin"]],"Namibia":[[0,"South West Africa"],[1990,"Namibia"]],"Ethiopia":[[0,"Ethiopia"],[1974,"Provisional Military Government of Socialist Ethiopia"],[1987,"People's Democratic Republic of Ethiopia"],[1991,"Ethiopia"]],"Djibouti":[[0,"French Somaliland"],[1967,"French Territory of the Afars and the Issas"],[1977,"Djibouti"]],"Equatorial Guinea":[[0,"Spanish Guinea"],[1968,"Equatorial Guinea"]],"Sudan":[[0,"Anglo-Egyptian Sudan"],[1956,"Sudan"]],"Jordan":[[0,"Transjordan"],[1946,"Jordan"]],"South Africa":[[0,"Union of South Africa"],[1961,"South Africa"]],"Italy":[[0,"Kingdom of Italy"],[1946,"Italy"]],"Germany":[[0,"German Empire"],[1919,"Germany"],[1933,"German Reich"],[1945,"Germany"]],"Iran":[[0,"Persia"],[1935,"Iran"]],"Saudi Arabia":[[0,"Nejd, Hejaz and Ha'il (separate states)"],[1925,"Sultanate of Nejd (with occupied Hejaz)"],[1926,"Kingdom of Hejaz and Nejd"],[1932,"Saudi Arabia"]],"Albania":[[0,"Principality of Albania"],[1925,"Albanian Republic"],[1928,"Kingdom of Albania"],[1944,"Albania"]],"Afghanistan":[[0,"Emirate of Afghanistan"],[1926,"Afghanistan"]],"Mongolia":[[0,"Autonomous Mongolia (Bogd Khanate)"],[1921,"Mongolia"],[1924,"Mongolian People's Republic"],[1992,"Mongolia"]],"Spain":[[0,"Kingdom of Spain"],[1931,"Second Spanish Republic"],[1939,"Spain"]],"Ireland":[[0,"Ireland"],[1922,"Irish Free State"],[1937,"Ireland"]],"Greece":[[0,"Kingdom of Greece"],[1924,"Second Hellenic Republic"],[1935,"Greece"]],"Finland":[[0,"Grand Duchy of Finland"],[1917,"Finland"]],"Montenegro":[[0,"Kingdom of Montenegro"],[1919,"Montenegro"]],"Russia":[[0,"Russian Empire"],[1918,"Russian Soviet Federative Socialist Republic"],[1992,"Russia"]],"Georgia":[[0,"Democratic Republic of Georgia"],[1992,"Georgia"]],"Persia":[[0,"Persia"]],"Rattanakosin Kingdom":[[0,"Siam"]],"Siam":[[0,"Siam"]],"Thailand":[[0,"Siam"],[1939,"Thailand"]],"Ceylon":[[0,"Ceylon"]],"Sri Lanka":[[0,"Ceylon"],[1972,"Sri Lanka"]],"Abyssinia":[[0,"Abyssinia"]],"Malaysia":[[0,"British Malaya"],[1957,"Federation of Malaya"],[1963,"Malaysia"]],"Yugoslavia":[[0,"Kingdom of Serbs, Croats and Slovenes"],[1929,"Kingdom of Yugoslavia"],[1945,"Yugoslavia"],[1963,"Socialist Federal Republic of Yugoslavia"]],"Czechoslovakia":[[0,"Czechoslovakia"],[1960,"Czechoslovak Socialist Republic"],[1990,"Czech and Slovak Federative Republic"]],"Cambodia":[[0,"Kingdom of Cambodia"],[1970,"Khmer Republic"],[1975,"Cambodia"],[1979,"People's Republic of Kampuchea"],[1989,"State of Cambodia"],[1993,"Cambodia"]],"North Yemen":[[0,"Yemen (Zaydi imamate, Ottoman suzerainty)"],[1918,"Mutawakkilite Kingdom of Yemen"],[1962,"Yemen Arab Republic"]],"North Vietnam":[[0,"Democratic Republic of Vietnam"]],"South Vietnam":[[0,"Republic of Vietnam"],[1975,"Republic of South Vietnam"]],"Vietnam":[[0,"Vietnam"],[1976,"Socialist Republic of Vietnam"]],"Laos":[[0,"Kingdom of Laos"],[1975,"Lao People's Democratic Republic"]],"Kiribati":[[0,"Gilbert Islands"],[1979,"Kiribati"]],"Vanuatu":[[0,"New Hebrides"],[1980,"Vanuatu"]],"South Yemen":[[0,"People's Democratic Republic of Yemen"]],"Serbia":[[0,"Serbia"],[1992,"Federal Republic of Yugoslavia"],[2006,"Serbia"]],"Oman":[[0,"Muscat and Oman"],[1970,"Oman"]],"United Arab Emirates":[[0,"Trucial Oman"],[1971,"United Arab Emirates"]],"Cameroon":[[0,"French Cameroons"],[1960,"Cameroon"]],"Guyana":[[0,"British Guiana"],[1966,"Guyana"]],"Korea, Republic of":[[0,"Republic of Korea"]],"Korea, Democratic People's Republic of":[[0,"Democratic People's Republic of Korea"]],"Dem. Rep. Congo":[[0,"Belgian Congo"],[1960,"Republic of the Congo (Léopoldville)"],[1964,"Democratic Republic of the Congo"],[1971,"Zaire"],[1997,"Democratic Republic of the Congo"]],"South Korea":[[0,"Republic of Korea"]],"North Korea":[[0,"Democratic People's Republic of Korea"]],"Singapore":[[0,"Straits Settlements"],[1946,"Colony of Singapore"],[1959,"State of Singapore"],[1963,"Singapore"]],"Togo":[[0,"French Togoland"],[1960,"Togo"]],"Guinea":[[0,"French Guinea"],[1958,"Guinea"]],"Central African Rep.":[[0,"Ubangi-Shari"],[1958,"Central African Republic"]],"Cyprus":[[0,"British Cyprus"],[1960,"Cyprus"]],"Iraq":[[0,"Kingdom of Iraq"],[1958,"Iraq"]],"Indonesia":[[0,"Dutch East Indies"],[1949,"Indonesia"]],"Myanmar":[[0,"Burma"],[1989,"Myanmar"]],"Ethiopia":[[0,"Ethiopian Empire"],[1974,"Ethiopia"]],"Austria":[[0,"Austria"],[1934,"Federal State of Austria"],[1938,"Austria"]],"Bulgaria":[[0,"Bulgaria"],[1908,"Kingdom of Bulgaria"],[1946,"Bulgaria"]],"Hungary":[[0,"Hungary"],[1920,"Kingdom of Hungary"],[1946,"Hungary"]],"Romania":[[0,"Kingdom of Romania"],[1948,"Romania"]],"Slovakia":[[0,"Slovakia"],[1939,"Slovak Republic"],[1945,"Slovakia"]],"Japan":[[0,"Empire of Japan"],[1947,"Japan"]]};   // raw name -> [[from year, official name]]
+const NAMES_FIX = {"USA":"United States","United States of America":"United States","Great Britain":"United Kingdom of Great Britain and Ireland","Austria Hungary":"Austria-Hungary","Austro-Hungarian Empire":"Austria-Hungary","Anglo-Egyption Sudan":"Anglo-Egyptian Sudan","Byelarus":"Belarus","Bosnia-Herzegovina":"Bosnia and Herzegovina","Trinidad":"Trinidad and Tobago","Netherlands Indies":"Dutch East Indies","Dutch Guinea":"Netherlands New Guinea","Imperial Japan":"Empire of Japan","Walbis Bay":"Walvis Bay","Rio De Oro":"Río de Oro","Chinese warlords":"Chinese Warlords","central Asian khanates":"Central Asian khanates","French Indochina":"French Indochina","French Indo-China":"French Indochina","Saint Barthelemy":"Saint-Barthélemy (France)","Saint Martin":"Saint-Martin (France)","Turkish Cypriot-administered area":"Northern Cyprus","Cyraneica (UK Lybia)":"Cyrenaica (British administration)","Tripolitana (UK Lybia)":"Tripolitania (British administration)","Fezzan (Frech Lybia)":"Fezzan (French administration)","Libya (IT)":"Libya (Italy)","Algeria (FR)":"Algeria (France)","Senegal (FR)":"Senegal (France)","Gold Coast (GB)":"Gold Coast (United Kingdom)","Jamaica (UK)":"Jamaica (United Kingdom)","Sakhalin (RU)":"Sakhalin (Russia)","South Australia (UK)":"South Australia (United Kingdom)","Western Australia (UK)":"Western Australia (United Kingdom)","Victoria (UK)":"Victoria (United Kingdom)","Queensland (UK)":"Queensland (United Kingdom)","New South Wales (UK)":"New South Wales (United Kingdom)","Northern Territory (UK)":"Northern Territory (United Kingdom)","Harer (Egypt)":"Harar (Egypt)","Mandatory Palestine (GB)":"Mandatory Palestine (United Kingdom)","Mesopotamia (GB)":"Mesopotamia (British mandate)","Syria (France)":"Syria (French mandate)","Rwanda (Belgium)":"Ruanda-Urundi (Belgian mandate)","Zaire (Belgium)":"Belgian Congo","Germany (UK)":"Germany (British zone)","Germany (France)":"Germany (French zone)","Germany (USA)":"Germany (US zone)","Germany (Soviet)":"Germany (Soviet zone)","Japan (USA)":"Japan (US occupation)","Korea (USA)":"Korea (US occupation)","Korea (USSR)":"Korea (Soviet occupation)","Yemen (UK)":"Aden (British protectorate)","Morocco (France)":"Morocco (French protectorate)","Saar Protectorate":"Saar (French protectorate)","German E. Africa (Tanganyika)":"German East Africa (German Empire)","Madagascar (France)":"Madagascar (France)","USSR":"Soviet Union","Hejaz":"Kingdom of Hejaz","Hail":"Emirate of Ha'il","Greenland":"Greenland (Denmark)","Puerto Rico":"Puerto Rico (United States)","American Samoa":"American Samoa (United States)","Niue":"Niue (New Zealand)","United States Virgin Islands":"United States Virgin Islands (United States)","Wallis and Futuna Islands":"Wallis and Futuna Islands (France)","Anguilla":"Anguilla (United Kingdom)","Montserrat":"Montserrat (United Kingdom)","Turks and Caicos Islands":"Turks and Caicos Islands (United Kingdom)","Guadeloupe":"Guadeloupe (France)","Martinique":"Martinique (France)","French Guiana":"French Guiana (France)","New Caledonia":"New Caledonia (France)","Netherlands Antilles":"Netherlands Antilles (Netherlands)","Guam":"Guam (United States)","Rapa Nui":"Rapa Nui (Chile)","Dhekelia":"Dhekelia (United Kingdom)","S. Sudan":"South Sudan","W. Sahara":"Western Sahara","St-Martin":"Saint-Martin (France)","Sint Maarten":"Sint Maarten (Netherlands)","Central African Rep.":"Central African Republic","Dominican Rep.":"Dominican Republic","Bosnia and Herz.":"Bosnia and Herzegovina","USNB Guantanamo Bay":"Guantanamo Bay Naval Base (Cuba; leased to the United States)","Brazilian I.":"Brazilian Island","Gibraltar":"Gibraltar (United Kingdom)","Eq. Guinea":"Equatorial Guinea","Hong Kong":"Hong Kong (China)","Vatican":"Vatican City","N. Cyprus":"Northern Cyprus","Cyprus U.N. Buffer Zone":"UN Buffer Zone (Cyprus)","Baikonur":"Baikonur Cosmodrome (Kazakhstan; leased to Russia)","Akrotiri":"Akrotiri (United Kingdom)","Curaçao":"Curaçao (Netherlands)","Aruba":"Aruba (Netherlands)","Turks and Caicos Is.":"Turks and Caicos Islands (United Kingdom)","St. Pierre and Miquelon":"Saint Pierre and Miquelon (France)","Pitcairn Is.":"Pitcairn Islands (United Kingdom)","Fr. Polynesia":"French Polynesia (France)","Fr. S. Antarctic Lands":"French Southern and Antarctic Lands (France)","Marshall Is.":"Marshall Islands","St. Vin. and Gren.":"Saint Vincent and the Grenadines","U.S. Minor Outlying Is.":"United States Minor Outlying Islands (United States)","Antigua and Barb.":"Antigua and Barbuda","St. Kitts and Nevis":"Saint Kitts and Nevis","U.S. Virgin Is.":"United States Virgin Islands (United States)","St-Barthélemy":"Saint-Barthélemy (France)","British Virgin Is.":"British Virgin Islands (United Kingdom)","Cayman Is.":"Cayman Islands (United Kingdom)","Bermuda":"Bermuda (United Kingdom)","Heard I. and McDonald Is.":"Heard Island and McDonald Islands (Australia)","Saint Helena":"Saint Helena (United Kingdom)","Jersey":"Jersey (United Kingdom)","Guernsey":"Guernsey (United Kingdom)","Isle of Man":"Isle of Man (United Kingdom)","Åland":"Åland (Finland)","Faeroe Is.":"Faroe Islands (Denmark)","Indian Ocean Ter.":"Indian Ocean Territories (Australia)","Br. Indian Ocean Ter.":"British Indian Ocean Territory (United Kingdom)","Norfolk Island":"Norfolk Island (Australia)","Cook Is.":"Cook Islands (New Zealand)","Wallis and Futuna Is.":"Wallis and Futuna Islands (France)","Solomon Is.":"Solomon Islands","Micronesia":"Federated States of Micronesia","S. Geo. and the Is.":"South Georgia and the Islands (United Kingdom)","Falkland Is.":"Falkland Islands (United Kingdom)","N. Mariana Is.":"Northern Mariana Islands (United States)","Coral Sea Is.":"Coral Sea Islands (Australia)","Spratly Is.":"Spratly Islands","Clipperton I.":"Clipperton Island (France)","Macao":"Macao (China)","Ashmore and Cartier Is.":"Ashmore and Cartier Islands (Australia)"};    // formatting fixes (abbreviations, typos, brackets)
+const LINEAGE = {"United Arab Republic":"Egypt","Ruanda-Urundi (Belgian trust territory)":"Rwanda","Netherlands New Guinea":"Indonesia","Zanzibar":"Tanzania","Crown Colony of Sarawak":"Malaysia","Crown Colony of North Borneo":"Malaysia","Federation of Malaya":"Malaysia","Southern Cameroons":"Cameroon","Northern Cameroons":"Nigeria","Colony of Aden":"Yemen","Western Aden Protectorate":"Yemen","Eastern Aden Protectorate":"Yemen","Portuguese India":"India","Kingdom of Libya":"Libya","Libyan Arab Republic":"Libya","Kingdom of Burundi":"Burundi","British Mauritius":"Mauritius","Spanish Guinea":"Equatorial Guinea","Federation of South Arabia":"Yemen","Protectorate of South Arabia":"Yemen","Spanish Ifni":"Morocco","Kingdom of Cambodia":"Cambodia","Portuguese Angola":"Angola","Portuguese Mozambique":"Mozambique","Portuguese Guinea":"Guinea-Bissau","Portuguese Cape Verde":"Cabo Verde","Portuguese Timor":"Timor-Leste","British Bahamas":"Bahamas","British Honduras":"Belize","Kingdom of Laos":"Laos","Khmer Republic":"Cambodia","Trucial States":"United Arab Emirates","Crown Colony of the Seychelles":"Seychelles","British Solomon Islands":"Solomon Is.","Gilbert and Ellice Islands":"Kiribati","Comoro Islands":"Comoros","Republic of Vietnam":"Vietnam","North Vietnam":"Vietnam","South Vietnam":"Vietnam","Rhodesia (not recognized)":"Zimbabwe","North Yemen":"Yemen","South Yemen":"Yemen","West Germany":"Germany","Serbia and Montenegro":"Serbia","USA":"United States","United States of America":"United States","Great Britain":"United Kingdom of Great Britain and Ireland","Austria Hungary":"Austria-Hungary","Austro-Hungarian Empire":"Austria-Hungary","Anglo-Egyption Sudan":"Sudan","Byelarus":"Belarus","Bosnia-Herzegovina":"Bosnia and Herzegovina","Czech Republic":"Czechia","Macedonia":"North Macedonia","Swaziland":"Eswatini","Ivory Coast":"Côte d'Ivoire","Gambia, The":"The Gambia","Bahamas":"The Bahamas","Tanzania, United Republic of":"Tanzania","Korea, Democratic People's Republic of":"Democratic People's Republic of Korea","Korea, Republic of":"Republic of Korea","Turkey":"Türkiye","Republic of Turkey":"Türkiye","Zaire":"Democratic Republic of the Congo","Congo":"Republic of the Congo","Burma":"Myanmar","Persia":"Iran","Siam":"Thailand","Ceylon":"Sri Lanka","Abyssinia":"Ethiopia","Trinidad":"Trinidad and Tobago","Netherlands Indies":"Dutch East Indies","Dutch Guinea":"Netherlands New Guinea","Imperial Japan":"Empire of Japan","Walbis Bay":"Walvis Bay","Rio De Oro":"Río de Oro","Chinese warlords":"Chinese Warlords","central Asian khanates":"Central Asian khanates","French Indo-China":"French Indochina","Saint Barthelemy":"Saint-Barthélemy (France)","Saint Martin":"Saint-Martin (France)","Turkish Cypriot-administered area":"Northern Cyprus","Cyraneica (UK Lybia)":"Cyrenaica (British administration)","Tripolitana (UK Lybia)":"Tripolitania (British administration)","Fezzan (Frech Lybia)":"Fezzan (French administration)","Libya (IT)":"Libya (Italy)","Algeria (FR)":"Algeria (France)","Senegal (FR)":"Senegal (France)","Gold Coast (GB)":"Gold Coast (United Kingdom)","Jamaica (UK)":"Jamaica (United Kingdom)","Sakhalin (RU)":"Sakhalin (Russia)","South Australia (UK)":"South Australia (United Kingdom)","Western Australia (UK)":"Western Australia (United Kingdom)","Victoria (UK)":"Victoria (United Kingdom)","Queensland (UK)":"Queensland (United Kingdom)","New South Wales (UK)":"New South Wales (United Kingdom)","Northern Territory (UK)":"Northern Territory (United Kingdom)","Harer (Egypt)":"Harar (Egypt)","Mandatory Palestine (GB)":"Mandatory Palestine (United Kingdom)","Mesopotamia (GB)":"Mesopotamia (British mandate)","Syria (France)":"Syria (French mandate)","Rwanda (Belgium)":"Ruanda-Urundi (Belgian mandate)","Zaire (Belgium)":"Belgian Congo","Germany (UK)":"Germany (British zone)","Germany (France)":"Germany (French zone)","Germany (USA)":"Germany (US zone)","Germany (Soviet)":"Germany (Soviet zone)","Japan (USA)":"Japan (US occupation)","Korea (USA)":"Korea (US occupation)","Korea (USSR)":"Korea (Soviet occupation)","Yemen (UK)":"Aden (British protectorate)","Morocco (France)":"Morocco (French protectorate)","Saar Protectorate":"Germany","German E. Africa (Tanganyika)":"German East Africa (German Empire)","USSR":"Soviet Union","Hejaz":"Kingdom of Hejaz","Hail":"Emirate of Ha'il","Greenland":"Greenland (Denmark)","Puerto Rico":"Puerto Rico (United States)","American Samoa":"American Samoa (United States)","Niue":"Niue (New Zealand)","United States Virgin Islands":"United States Virgin Islands (United States)","Wallis and Futuna Islands":"Wallis and Futuna Islands (France)","Anguilla":"Anguilla (United Kingdom)","Montserrat":"Montserrat (United Kingdom)","Turks and Caicos Islands":"Turks and Caicos Islands (United Kingdom)","Guadeloupe":"Guadeloupe (France)","Martinique":"Martinique (France)","French Guiana":"French Guiana (France)","New Caledonia":"New Caledonia (France)","Netherlands Antilles":"Netherlands Antilles (Netherlands)","Guam":"Guam (United States)","Rapa Nui":"Rapa Nui (Chile)","Dhekelia":"Dhekelia (United Kingdom)","S. Sudan":"South Sudan","South Korea":"Republic of Korea","North Korea":"Democratic People's Republic of Korea","W. Sahara":"Western Sahara","Dem. Rep. Congo":"Democratic Republic of the Congo","St-Martin":"Saint-Martin (France)","Sint Maarten":"Sint Maarten (Netherlands)","Central African Rep.":"Central African Republic","Dominican Rep.":"Dominican Republic","eSwatini":"Eswatini","Bosnia and Herz.":"Bosnia and Herzegovina","USNB Guantanamo Bay":"Guantanamo Bay Naval Base (Cuba)","Brazilian I.":"Brazilian Island","Gibraltar":"Gibraltar (United Kingdom)","Eq. Guinea":"Equatorial Guinea","Gambia":"The Gambia","Hong Kong":"Hong Kong (China)","Vatican":"Vatican City","N. Cyprus":"Northern Cyprus","Cyprus U.N. Buffer Zone":"UN Buffer Zone (Cyprus)","Baikonur":"Baikonur Cosmodrome (Kazakhstan)","Akrotiri":"Akrotiri (United Kingdom)","Curaçao":"Curaçao (Netherlands)","Aruba":"Aruba (Netherlands)","Turks and Caicos Is.":"Turks and Caicos Islands (United Kingdom)","St. Pierre and Miquelon":"Saint Pierre and Miquelon (France)","Pitcairn Is.":"Pitcairn Islands (United Kingdom)","Fr. Polynesia":"French Polynesia (France)","Fr. S. Antarctic Lands":"French Southern and Antarctic Lands (France)","Marshall Is.":"Marshall Islands","St. Vin. and Gren.":"Saint Vincent and the Grenadines","U.S. Minor Outlying Is.":"United States Minor Outlying Islands (United States)","Antigua and Barb.":"Antigua and Barbuda","St. Kitts and Nevis":"Saint Kitts and Nevis","U.S. Virgin Is.":"United States Virgin Islands (United States)","St-Barthélemy":"Saint-Barthélemy (France)","British Virgin Is.":"British Virgin Islands (United Kingdom)","Cayman Is.":"Cayman Islands (United Kingdom)","Bermuda":"Bermuda (United Kingdom)","Heard I. and McDonald Is.":"Heard Island and McDonald Islands (Australia)","Saint Helena":"Saint Helena (United Kingdom)","Jersey":"Jersey (United Kingdom)","Guernsey":"Guernsey (United Kingdom)","Isle of Man":"Isle of Man (United Kingdom)","Åland":"Åland (Finland)","Faeroe Is.":"Faroe Islands (Denmark)","Indian Ocean Ter.":"Indian Ocean Territories (Australia)","Br. Indian Ocean Ter.":"British Indian Ocean Territory (United Kingdom)","Norfolk Island":"Norfolk Island (Australia)","Cook Is.":"Cook Islands (New Zealand)","Wallis and Futuna Is.":"Wallis and Futuna Islands (France)","Solomon Is.":"Solomon Islands","Micronesia":"Federated States of Micronesia","S. Geo. and the Is.":"South Georgia and the Islands (United Kingdom)","Falkland Is.":"Falkland Islands (United Kingdom)","N. Mariana Is.":"Northern Mariana Islands (United States)","Coral Sea Is.":"Coral Sea Islands (Australia)","Spratly Is.":"Spratly Islands","Clipperton I.":"Clipperton Island (France)","Macao":"Macao (China)","Ashmore and Cartier Is.":"Ashmore and Cartier Islands (Australia)","Rattanakosin Kingdom":"Thailand","Empire of Japan":"Japan","United Kingdom of Great Britain and Ireland":"United Kingdom","German Empire":"Germany","Kingdom of Italy":"Italy","Union of South Africa":"South Africa","Northern Rhodesia":"Zambia","Nyasaland":"Malawi","Southern Rhodesia":"Zimbabwe","Gold Coast":"Ghana","Basutoland":"Lesotho","Bechuanaland":"Botswana","French Somaliland":"Djibouti","Anglo-Egyptian Sudan":"Sudan","Transjordan":"Jordan","Dahomey":"Benin","Upper Volta":"Burkina Faso","French Sudan":"Mali","South West Africa":"Namibia","British Guiana":"Guyana","Tanganyika":"Tanzania","Muscat and Oman":"Oman","Malaya":"Malaysia","British Malaya":"Malaysia","Kingdom of Yugoslavia":"Yugoslavia","Kingdom of Serbs, Croats and Slovenes":"Yugoslavia","Federal Republic of Yugoslavia":"Serbia","Belgian Congo":"Dem. Rep. Congo","Republic of the Congo (Léopoldville)":"Democratic Republic of the Congo","French Congo":"Republic of the Congo","Trucial Oman":"United Arab Emirates","French Cameroons":"Cameroon","Spanish Morocco":"Morocco","Cape Juby (Spain)":"Morocco","Tangier International Zone":"Morocco","British Somaliland":"Somalia","Trust Territory of Somaliland (Italian administration)":"Somalia","British Togoland":"Ghana","Middle Congo":"Congo","Ubangi-Shari":"Central African Republic","French Togoland":"Togo","French Guinea":"Guinea","French Madagascar":"Madagascar","British Cyprus":"Cyprus","Kingdom of Iraq":"Iraq","Colony of Singapore":"Singapore","State of Singapore":"Singapore","Gold Coast (British colony)":"Ghana","Tripolitania (British administration)":"Libya","Cyrenaica (British administration)":"Libya","Fezzan-Ghadames (French administration)":"Libya","Free Territory of Trieste (Zone A, Allied administration)":"Free Territory of Trieste","Free Territory of Trieste (Zone B, Yugoslav administration)":"Free Territory of Trieste","Tibet (de facto independent, not recognized)":"China","Democratic Republic of Vietnam (Viet Minh-held, not recognized)":"Vietnam","State of Vietnam":"Vietnam","French India":"India","Eritrea (British administration)":"Eritrea","Germany (US occupation zone)":"Germany","Germany (British occupation zone)":"Germany","Germany (French occupation zone)":"Germany","Germany (Soviet occupation zone)":"East Germany","Berlin (Western Allied sectors)":"Germany","Venezia Giulia (Zone A, Allied administration)":"Italy","Dodecanese (British administration)":"Greece","Manchuria (Soviet occupation)":"China","East Turkestan Republic (Soviet-backed, not recognized)":"China","Korea (Soviet occupation zone)":"North Korea","Korea (US occupation zone)":"South Korea","Democratic Republic of Vietnam (Chinese-occupied, not recognized)":"Vietnam","Southern Vietnam (French and British occupation)":"Vietnam","Republic of Indonesia (not recognized)":"Indonesia","Dutch East Indies":"Indonesia","Azerbaijan People's Government (Soviet-backed, not recognized)":"Iran","Mandatory Palestine":"Israel","Ogaden (British administration)":"Ethiopia","British India":"India","Straits Settlements":"Singapore","Italian Somaliland (British administration)":"Somalia","Sarawak (British Military Administration)":"Malaysia","North Borneo (British Military Administration)":"Malaysia","French State":"France","General Government":"Poland","Poland (Soviet-annexed)":"Poland","Protectorate of Bohemia and Moravia":"Czechia","Vietnam (French Indochina)":"Vietnam","Italian Somaliland":"Somalia","British Somaliland (Italian-occupied)":"Somalia","Southern Albania (Greek-held)":"Albania","Tangier (Spanish-occupied)":"Morocco","Italian Eritrea":"Eritrea"};      // raw name -> continuity label
+const ADJ = { "United Kingdom": "British", "Portugal": "Portuguese", "France": "French", "Netherlands": "Dutch", "Spain": "Spanish", "Italy": "Italian", "Belgium": "Belgian" };   // "Portuguese Angola" already says who ruled it
+const PAREN = { "United Kingdom of Great Britain and Ireland": "United Kingdom", "Empire of Japan": "Japan", "Kingdom of Italy": "Italy" };
+const STATUS = { // (raw name|raw sovereign) -> name to display
+  "Iraq|Turkey": "Mesopotamia (Ottoman Empire)",
+  "Ukraine|Russia": "Ukrainian Soviet Socialist Republic (Soviet-controlled)", "Belarus|Russia": "Byelorussian Soviet Socialist Republic (Soviet-controlled)", "Armenia|Russia": "Armenian Soviet Socialist Republic (Soviet-controlled)", "Azerbaijan|Russia": "Azerbaijan Soviet Socialist Republic (Soviet-controlled)", "Far Eastern Republic|Russia": "Far Eastern Republic (Soviet-backed, not recognized)", "Egypt|United Kingdom": "Sultanate of Egypt (British protectorate)", "Ireland|United Kingdom": "Ireland (United Kingdom)",
+  "Zimbabwe|United Kingdom": "Southern Rhodesia (self-governing British colony)", "Zambia|United Kingdom": "Northern Rhodesia (British protectorate)", "Malawi|United Kingdom": "Nyasaland (British protectorate)",
+  "General Government|Germany": "General Government", "Occupied Norway|Germany": "Norway (German-occupied)", "Occupied Denmark|Germany": "Denmark (German-occupied)", "Occupied Netherlands|Germany": "Netherlands (German-occupied)", "Occupied Belgium|Germany": "Belgium (German military administration)", "Occupied France|Germany": "France (German-occupied zone)", "Alsace-Lorraine|Germany": "Alsace-Lorraine (German-annexed de facto)", "Luxembourg|Germany": "Luxembourg (German-administered)", "Jersey|Germany": "Jersey (German-occupied)", "Guernsey|Germany": "Guernsey (German-occupied)", "Protectorate of Bohemia and Moravia|Germany": "Protectorate of Bohemia and Moravia", "Albania|Italy": "Albania (Italian protectorate)", "Libya|Italy": "Italian Libya", "Ethiopia|Italy": "Italian Ethiopia", "Italian Somaliland|Italy": "Italian Somaliland", "Italian Eritrea|Italy": "Italian Eritrea", "Italian Islands of the Aegean|Italy": "Italian Islands of the Aegean", "Korea|Japan": "Korea (Japanese rule)", "Taiwan|Japan": "Taiwan (Japanese rule)", "Manchukuo|Japan": "Manchukuo (Japanese-controlled)", "Mengjiang|Japan": "Mengjiang (Japanese-controlled)", "Reorganized National Government of China|Japan": "Reorganized National Government of China (Japanese-controlled)", "Marshall Is.|Japan": "Marshall Islands (Japanese mandate)", "Micronesia|Japan": "Caroline Islands (Japanese mandate)", "N. Mariana Is.|Japan": "Mariana Islands (Japanese mandate)", "Palau|Japan": "Palau (Japanese mandate)", "Syria|France": "Syria (French mandate)", "Lebanon|France": "Lebanon (French mandate)", "Faeroe Is.|United Kingdom": "Faroe Islands (British-occupied)",
+  "Egypt|United Kingdom of Great Britain and Ireland": "Egypt (British protectorate)", "Tunisia|France": "Tunisia (French protectorate)", "Morocco|France": "Morocco (French protectorate)",
+  "Qatar|United Kingdom of Great Britain and Ireland": "Qatar (British protectorate)", "Trucial Oman|United Kingdom of Great Britain and Ireland": "Trucial Oman (British protectorate)",
+  "Muscat and Oman|United Kingdom of Great Britain and Ireland": "Muscat and Oman (British protectorate)", "Guyana|Netherlands": "Suriname (Netherlands)",
+  "Botswana|United Kingdom": "Bechuanaland (British protectorate)", "Botswana|United Kingdom of Great Britain and Ireland": "Bechuanaland (British protectorate)",
+  "Lesotho|United Kingdom": "Basutoland (British protectorate)", "Swaziland|United Kingdom": "Swaziland (British protectorate)",
+  "Ghana|United Kingdom": "Gold Coast (British colony)", "Nigeria|United Kingdom": "Colony and Protectorate of Nigeria", "Federation of Malaya|United Kingdom": "Federation of Malaya (British protectorate)", "Somalia|Italy": "Trust Territory of Somaliland (Italian administration)", "Somalia|United Kingdom": "Italian Somaliland (British administration)",
+  "Kuwait|Iraq": "Kuwait (Iraqi-occupied)", "Seychelles|United Kingdom": "Crown Colony of the Seychelles", "Sierra Leone|United Kingdom": "Sierra Leone Colony and Protectorate", "Kuwait|United Kingdom": "Kuwait (British protectorate)", "Tanzania|United Kingdom": "Tanganyika Territory", "Uganda|United Kingdom": "Uganda Protectorate", "Kenya|United Kingdom": "Kenya Colony", "Malta|United Kingdom": "Crown Colony of Malta", "Gambia|United Kingdom": "Gambia Colony and Protectorate", "Maldives|United Kingdom": "Maldives (British protected state)", "Samoa|New Zealand": "Western Samoa (New Zealand trust territory)", "Algeria|France": "French Algeria", "Zanzibar|United Kingdom": "Zanzibar (British protectorate)", "Crown Colony of Sarawak|United Kingdom": "Crown Colony of Sarawak", "Crown Colony of North Borneo|United Kingdom": "Crown Colony of North Borneo", "Portuguese India|Portugal": "Portuguese India", "Colony of Aden|United Kingdom": "Colony of Aden", "Western Aden Protectorate|United Kingdom": "Western Aden Protectorate", "Eastern Aden Protectorate|United Kingdom": "Eastern Aden Protectorate", "Fiji|United Kingdom": "Colony of Fiji", "Tonga|United Kingdom": "Tonga (British protected state)", "eSwatini|United Kingdom": "Swaziland (British protectorate)", "Gilbert and Ellice Islands|United Kingdom": "Gilbert and Ellice Islands", "Grenada|United Kingdom": "Grenada (British associated state)", "Antigua and Barb.|United Kingdom": "Antigua (British associated state)", "Dominica|United Kingdom": "Dominica (British associated state)", "Saint Lucia|United Kingdom": "Saint Lucia (British associated state)", "St. Vin. and Gren.|United Kingdom": "Saint Vincent (British associated state)", "St. Kitts and Nevis|United Kingdom": "Saint Christopher-Nevis-Anguilla (British associated state)", "Bahrain|United Kingdom": "Bahrain (British protectorate)", "Qatar|United Kingdom": "Qatar (British protectorate)", "United Arab Emirates|United Kingdom": "Trucial States (British protectorate)", "Comoros|France": "Comoro Islands (French overseas territory)", "Suriname|Netherlands": "Suriname (Netherlands)", "Papua New Guinea|Australia": "Territory of Papua and New Guinea (Australia)", "Brunei|United Kingdom": "Brunei (British protectorate)", "Spanish Sahara|Spain": "Spanish Sahara (Spanish-administered)", "Vanuatu|United Kingdom": "New Hebrides (British–French condominium)", "Namibia|South Africa": "South West Africa (South African-administered)", "Northern Chad|Libya": "Northern Chad (Libyan-occupied)", "Marshall Is.|United States": "Marshall Islands (US trust territory)", "Micronesia|United States": "Micronesia (US trust territory)", "N. Mariana Is.|United States": "Northern Mariana Islands (US trust territory)", "Palau|United States": "Palau (US trust territory)", "Transkei|South Africa": "Transkei (nominally independent)", "Bophuthatswana|South Africa": "Bophuthatswana (nominally independent)", "Venda|South Africa": "Venda (nominally independent)", "Ciskei|South Africa": "Ciskei (nominally independent)", "Aouzou Strip|Libya": "Aouzou Strip (Libyan-occupied)", "Walvis Bay|South Africa": "Walvis Bay (South African enclave)"
+};
+const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+const lin = v => (v && has(LINEAGE, v)) ? LINEAGE[v] : v;
+const canon = lin;
+const LINLC = new Map(Object.keys(LINEAGE).map(k => [k.toLowerCase(), LINEAGE[k]]));
+const canonTyped = v => LINLC.get(v.trim().toLowerCase()) ?? v.trim(); // old or common names ("Turkey", "Siam", "Gold Coast"…) also find the state
+const dispName = (v, y) => {
+  if (!v) return v;
+  if (has(NAMES_YEAR, v)) { let n = v; for (const [from, name] of NAMES_YEAR[v]) if (y >= from) n = name; return n; }
+  return has(NAMES_FIX, v) ? NAMES_FIX[v] : v;
+};
+const stripPar = v => v.replace(/\s*\(.*\)\s*$/, "");
+function officialNames(fc, y) {
+  (fc.features || []).forEach(f => {
+    const p = f.properties; if (!p || !p.NAME) return;
+    const raw = p.NAME, rawS = p.SUBJECTO;
+    // hidden continuity: owning state for the click, and the keys through which a chosen name finds this territory
+    p.GROUP = lin(rawS || raw);
+    p.KEYS = [...new Set([raw, rawS, p.PARTOF].filter(Boolean).flatMap(v => [lin(v), stripPar(lin(v))]))];
+    // displayed name: official at the time, with the controlling state in brackets for special cases
+    let n = dispName(raw, y);
+    if (!n.includes("(") && rawS) {
+      const ds = dispName(rawS, y), sp = PAREN[ds] || ds, st = STATUS[raw + "|" + rawS];
+      if (st) n = st; else if (ds !== n && !n.includes(sp) && !sp.includes(n) && !((ADJ[ds] || ADJ[rawS]) && n.startsWith((ADJ[ds] || ADJ[rawS]) + " ")) && !/^(Colony of|Crown Colony|State of) /.test(n)) n = `${n} (${sp})`;
+    } else if (rawS && STATUS[raw + "|" + rawS]) n = STATUS[raw + "|" + rawS];
+    if (y < 1947) n = n.replace("US trust territory", "US military administration").replace("New Zealand trust territory", "New Zealand mandate");
+    if (y < 1920) n = n.replace("Kenya Colony", "East Africa Protectorate");
+    if (y < 1914) n = n.replace("Samoa (German Empire)", "German Samoa").replace("Sultanate of Egypt", "Khedivate of Egypt (British-occupied)").replace("Egypt (British protectorate)", "Khedivate of Egypt (British-occupied)").replace("Khedivate of Egypt (British-occupied) (British protectorate)", "Khedivate of Egypt (British-occupied)").replace("Colony and Protectorate of Nigeria", "Nigeria (Northern and Southern protectorates)");
+    if (y < 1920) n = n.replace("Japanese mandate", "Japanese occupation").replace("New Zealand mandate", "New Zealand occupation").replace("Papua and New Guinea (Australia)", y < 1914 ? "Papua (Australia)" : "Papua (Australia) and German New Guinea (Australian occupation)");
+    p.NAME = n;
+  });
+  return fc;
+}
+const BORDER_W = 0.8; // border/coastline width: rivers are never thicker than this
+const BASE = "https://cdn.jsdelivr.net/gh/aourednik/historical-basemaps@master/geojson/world_";
+const BASE_YEARS = [1880, 1900, 1910, 1915, 1920, 1925, 1930, 1935, 1940, 1945, 1950, 1955, 1960, 1965, 1970, 1975, 1980, 1985, 1990, 1995, 2000, 2005, 2010, 2015, 2020, 2025];
+// 2010, 2015, 2020 and 2025 come from Natural Earth 5.1.2 (May 2022), 1:10m, much more detailed than the historical data. "De facto" criterion:
+// disputed territories are drawn as whoever administers them controls them. It does not reflect changes after 2022 (apart from the patches above).
+const NE_YEARS = [1910, 1915, 1920, 1925, 1930, 1935, 1940, 1945, 1950, 1955, 1960, 1965, 1970, 1975, 1980, 1985, 1990, 1995, 2000, 2005, 2010, 2015, 2020, 2025];
+async function loadBase(y) {
+  if (!NE_YEARS.includes(y)) return officialNames(fixAntimeridian(await (await fetch(`${BASE}${y}.geojson`)).json()), y);
+  // Each year is a ready-made file (data/YYYY.json), built from Natural Earth 5.1.2 plus the historical patches and rules
+  const r = await fetch(`data/${y}.json`); if (!r.ok) throw new Error("data/" + y + ".json: " + r.status);
+  return r.json();
+}
+
+// Some data (Russia, Fiji and Antarctica in 2025; one area in 1880 and 1900) has rings that jump from +180° to -180°.
+// On a flat map that jump is a horizontal line as long as the world, which fills or covers strips of the map
+// (for example the band between 65° and 70° latitude). Here the rings are "unrolled" and cut along 180°.
+function fixAntimeridian(fc) {
+  if (!fc || !Array.isArray(fc.features)) return fc;
+  const crosses = r => { for (let k = 1; k < r.length; k++) if (Math.abs(r[k][0] - r[k - 1][0]) > 180) return true; return false; };
+  const unwrap = r => {
+    let off = 0; const o = [[r[0][0], r[0][1]]];
+    for (let k = 1; k < r.length; k++) {
+      const d = r[k][0] - r[k - 1][0];
+      if (d > 180) off -= 360; else if (d < -180) off += 360;
+      o.push([r[k][0] + off, r[k][1]]);
+    }
+    const a = o[0], b = o[o.length - 1];
+    if (Math.abs(a[0] - b[0]) > 180) { // ring around the pole (Antarctica): closed by going through the pole
+      const pole = b[1] < 0 ? -90 : 90;
+      o.push([b[0], pole], [a[0], pole], [a[0], a[1]]);
+    }
+    return o;
+  };
+  const clip = (ring, edge, inside) => { // Sutherland-Hodgman against a vertical line; the ring is closed (last = first)
+    const out = [];
+    for (let i = 0; i < ring.length - 1; i++) {
+      const a = ring[i], b = ring[i + 1], ia = inside(a), ib = inside(b);
+      if (ia) out.push(a);
+      if (ia !== ib) out.push([edge, a[1] + (edge - a[0]) / (b[0] - a[0]) * (b[1] - a[1])]);
+    }
+    if (out.length) out.push(out[0]);
+    return out.length >= 4 ? out : [];
+  };
+  const pieces = ring => {
+    const u = unwrap(ring), res = [];
+    for (const k of [-1, 0, 1]) { // [-180,180] windows shifted by k turns
+      const lo = -180 + 360 * k, hi = 180 + 360 * k;
+      let q = clip(u, lo, v => v[0] >= lo);
+      if (q.length) q = clip(q, hi, v => v[0] <= hi);
+      if (q.length) res.push(q.map(v => [v[0] - 360 * k, v[1]]));
+    }
+    return res;
+  };
+  fc.features.forEach(f => {
+    const g = f.geometry;
+    if (!g || (g.type !== "Polygon" && g.type !== "MultiPolygon")) return;
+    const polys = g.type === "Polygon" ? [g.coordinates] : g.coordinates;
+    if (!polys.some(poly => poly.some(crosses))) return;
+    const out = []; // every ring becomes a polygon of its own: holes stay holes because the fill is even/odd
+    polys.forEach(poly => poly.forEach(r => { if (crosses(r)) pieces(r).forEach(q => out.push([q])); else out.push([r]); }));
+    f.geometry = { type: "MultiPolygon", coordinates: out };
+  });
+  return fc;
+}
+const STORE = "mappa_storica_custom";
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const norm = s => (s || "").trim().toLowerCase();
+const map = L.map("map", { minZoom: 2, zoomSnap: 0.25, worldCopyJump: true }).setView([45, 14], 4);
+
+const cache = {};      // year -> base geojson (only the most recently used CACHE_MAX stay in memory)
+const CACHE_MAX = 4, cacheOrder = [];
+function touchCache(by) {
+  const i = cacheOrder.indexOf(by); if (i >= 0) cacheOrder.splice(i, 1);
+  cacheOrder.push(by);
+  while (cacheOrder.length > CACHE_MAX) {
+    const old = cacheOrder.shift(); delete cache[old];
+    if (NE_YEARS.includes(old)) { const k = String(old).slice(2); delete snappedRivers[k]; delete detailSnapP[k]; }
+  }
+}
+let custom = [];       // { id, year, name, full, data }
+let group = null, token = 0, pending = null, currentYear = 2025;
+
+try { custom = JSON.parse(localStorage.getItem(STORE) || "[]"); } catch (e) { custom = []; }
+function save() { try { localStorage.setItem(STORE, JSON.stringify(custom)); } catch (e) { /* file too large: it only lasts for this session */ } }
+
+const years = () => [...new Set([...BASE_YEARS, ...custom.map(c => c.year)])].sort((a, b) => a - b);
+
+// Selection: list of states to color, each with its own color. Valid for all years.
+const PALETTE = ["#2e7d5b", "#c0392b", "#2f6db5", "#e08a1e", "#7b4fa0", "#d4b21a", "#1f9ea8", "#b5527f",
+                 "#6b8e23", "#8b5e3c", "#4f4fa8", "#6fb7a0", "#e58e7a", "#6b7f99"];
+const SELKEY = "mappa_storica_sel";
+let sel = [];
+try { sel = JSON.parse(localStorage.getItem(SELKEY) || "null"); } catch (e) { sel = null; }
+if (!Array.isArray(sel) || !sel.every(x => x && typeof x.key === "string" && typeof x.color === "string")) sel = [{ key: "Italy", color: PALETTE[0] }];
+else { const seen = new Set(); sel = sel.map(x => ({ key: canon(x.key), color: x.color })).filter(x => !seen.has(norm(x.key)) && seen.add(norm(x.key))); }
+let selIdx = new Map(); // normalized name -> position in the selection
+function rebuildSel() { selIdx = new Map(); sel.forEach((x, i) => { const k = norm(x.key); if (!selIdx.has(k)) selIdx.set(k, i); }); }
+rebuildSel();
+const saveSel = () => { rebuildSel(); try { localStorage.setItem(SELKEY, JSON.stringify(sel)); } catch (e) { /* session only */ } };
+const nextColor = () => PALETTE.find(c => !sel.some(x => x.color.toLowerCase() === c)) || PALETTE[sel.length % PALETTE.length];
+const keysOf = p => p.KEYS || [p.NAME, p.SUBJECTO, p.PARTOF]; // KEYS: continuity labels (base data); files loaded by the user use names
+const selMatches = (x, f) => { const k = norm(x.key); return keysOf(f.properties || {}).some(v => norm(v) === k); };
+const colorOf = f => {
+  const p = f.properties || {}; let best = -1;
+  for (const v of keysOf(p)) { const i = selIdx.get(norm(v)); if (i !== undefined && (best < 0 || i < best)) best = i; }
+  return best < 0 ? null : sel[best].color;
+};
+const groupKey = f => { const p = f.properties || {}; return (p.GROUP || p.SUBJECTO || p.NAME || "").trim(); }; // the dominant state, or the area name
+
+function toggleGroup(f) {
+  const hits = sel.filter(x => selMatches(x, f));
+  if (hits.length) sel = sel.filter(x => !hits.includes(x));
+  else { const k = groupKey(f); if (!k) return; sel.push({ key: k, color: nextColor() }); }
+  saveSel(); listSel(); recolor();
+}
+// Which states are neighbours. "adj": they border by land (shared vertex).
+// "near": they do not touch but are separated by a little sea (straits, nearby islands, up to about 100 km).
+function groupAdjacency(data) {
+  const R = v => Math.round(v * 1e4), C = 0.25, RAD = 4, NX = Math.round(360 / C), NY = Math.round(180 / C); // cells of 0.25° (about 28 km); neighbours within 4 cells (about 110 km)
+  const ringsOf = g => !g ? [] : (g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : []).flat();
+  const ids = new Map(), adj = [], near = [], seen = new Map(), cells = new Map();
+  const idOf = k => { let i = ids.get(k); if (i === undefined) { i = ids.size; ids.set(k, i); adj.push(new Set()); near.push(new Set()); } return i; };
+  const link = (a, b) => { adj[a].add(b); adj[b].add(a); };
+  const cellKey = (lon, lat) => (((Math.floor((lon + 180) / C) % NX) + NX) % NX) * 1000 + Math.min(Math.max(Math.floor((lat + 90) / C), 0), NY - 1);
+  const cellAdd = (key, g) => { const c = cells.get(key); if (!c) cells.set(key, [g]); else if (!c.includes(g)) c.push(g); };
+  (data.features || []).forEach(f => {
+    const k = groupKey(f); if (!k) return;
+    const g = idOf(k);
+    ringsOf(f.geometry).forEach(r => {
+      let last = -1;
+      r.forEach((pt, n) => {
+        const v = (R(pt[0]) + 1800000) * 2000000 + (R(pt[1]) + 900000), o = seen.get(v);
+        if (o === undefined) seen.set(v, g);
+        else if (typeof o === "number") { if (o !== g) { seen.set(v, [o, g]); link(o, g); } }
+        else if (!o.includes(g)) { o.forEach(h => link(h, g)); o.push(g); }
+        // cells of C degrees: long sides are filled too, so islands with few vertices are not missed
+        const prev = r[n - 1];
+        if (prev && Math.abs(pt[0] - prev[0]) < 180) {
+          const m = Math.floor(Math.max(Math.abs(pt[0] - prev[0]), Math.abs(pt[1] - prev[1])) / C);
+          for (let j = 1; j <= m; j++) cellAdd(cellKey(prev[0] + (pt[0] - prev[0]) * j / (m + 1), prev[1] + (pt[1] - prev[1]) * j / (m + 1)), g);
+        }
+        const ck = cellKey(pt[0], pt[1]);
+        if (ck !== last) { cellAdd(ck, g); last = ck; }
+      });
+    });
+  });
+  cells.forEach((gs, key) => {
+    const ix = Math.floor(key / 1000), iy = key % 1000;
+    const cosLat = Math.max(0.2, Math.cos(((iy + 0.5) * C - 90) * Math.PI / 180)); // at high latitude a degree of longitude is shorter
+    for (let dy = -RAD; dy <= RAD; dy++) {
+      const jy = iy + dy; if (jy < 0 || jy >= NY) continue;
+      const dxm = Math.floor(Math.sqrt(RAD * RAD - dy * dy) / cosLat);
+      for (let dx = -dxm; dx <= dxm; dx++) {
+        const o = cells.get((((ix + dx) % NX + NX) % NX) * 1000 + jy); if (!o) continue;
+        gs.forEach(x => o.forEach(y => { if (x !== y && !adj[x].has(y)) { near[x].add(y); near[y].add(x); } }));
+      }
+    }
+  });
+  return { keys: [...ids.keys()], adj, near };
+}
+// Colors every group avoiding the same color between neighbours (by land and by sea); on a tie it picks the least used color.
+// If the palette is not enough, only the land border counts. "fixed": colors already chosen by the user (normalized name -> color).
+function assignColors(data, fixed) {
+  const { keys, adj, near } = groupAdjacency(data);
+  const col = keys.map(k => fixed.get(norm(k)) || null), used = new Map(PALETTE.map(c => [c, 0]));
+  col.forEach(c => { if (used.has(c)) used.set(c, used.get(c) + 1); });
+  const deg = i => adj[i].size + near[i].size;
+  const order = keys.map((_, i) => i).filter(i => !col[i]).sort((a, b) => deg(b) - deg(a));
+  const pick = nb => {
+    const taken = new Set(nb.map(j => col[j]).filter(Boolean));
+    let best = null;
+    for (const c of PALETTE) if (!taken.has(c) && (best === null || used.get(c) < used.get(best))) best = c;
+    return best;
+  };
+  for (const i of order) {
+    const hard = [...adj[i]];
+    let best = pick([...hard, ...near[i]]) || pick(hard);
+    if (best === null) { // palette used up by land neighbours (should not happen): the least frequent color among them
+      const n = c => hard.filter(j => col[j] === c).length;
+      best = PALETTE.reduce((a, c) => n(c) < n(a) ? c : a);
+    }
+    col[i] = best; used.set(best, used.get(best) + 1);
+  }
+  return keys.map((k, i) => ({ key: k, color: col[i] }));
+}
+
+function listSel() {
+  $("sels").innerHTML = sel.map((x, i) =>
+    `<li><input type="color" data-i="${i}" value="${x.color}" aria-label="Color of ${esc(x.key)}"><span>${esc(x.key)}</span><button data-i="${i}" title="Remove" aria-label="Remove ${esc(x.key)}">×</button></li>`).join("")
+    || '<li class="hint">No states: click the map or type a name.</li>';
+}
+const GROW = 20000; // meters: how far the color may extend beyond the coarse border to reach the real coastline
+const coastOn = () => !!landLayers;
+const isCont = f => !!(f.properties && f.properties.CONTESTED);
+const baseStyle = year => f => {
+  const c = colorOf(f);
+  if (c && coastOn()) return { stroke: false, fill: true, fillColor: c, fillOpacity: 0 }; // invisible but clickable
+  if (coastOn()) return { stroke: false, fillColor: "#eceeec", fillOpacity: 1 };
+  return { color: "#7c8a8e", weight: BORDER_W, fillColor: c || "#eceeec", fillOpacity: c ? (isCont(f) ? 0.45 : 0.85) : 1 };
+};
+
+// Borders = only the edges shared by two different polygons. Edges of a single polygon are coarse
+// coastline: with the detailed coastline on, the real one is used and they are not drawn.
+function sharedBorders(data) {
+  const R = v => Math.round(v * 1e4), K = p => R(p[0]) + "," + R(p[1]);
+  const ek = (a, b) => { const A = K(a), B = K(b); return A < B ? A + "|" + B : B + "|" + A; };
+  const feats = data.features || (data.type === "Feature" ? [data] : [{ geometry: data }]);
+  const ringsOf = g => !g ? [] : (g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : []).flat();
+  const owners = new Map(); // edge -> [lowest index, shared?]
+  feats.forEach((f, i) => ringsOf(f.geometry).forEach(r => {
+    for (let k = 0; k < r.length - 1; k++) {
+      const key = ek(r[k], r[k + 1]), o = owners.get(key);
+      if (!o) owners.set(key, [i, false]);
+      else if (o[0] !== i) { o[1] = true; o[0] = Math.min(o[0], i); }
+    }
+  }));
+  const lines = [];
+  feats.forEach((f, i) => ringsOf(f.geometry).forEach(r => {
+    let run = [];
+    const flush = () => { if (run.length > 1) lines.push(run); run = []; };
+    for (let k = 0; k < r.length - 1; k++) {
+      const o = owners.get(ek(r[k], r[k + 1]));
+      if (o[1] && o[0] === i) { if (!run.length) run.push(r[k]); run.push(r[k + 1]); } else flush();
+    }
+    flush();
+  }));
+  return { type: "Feature", properties: {}, geometry: { type: "MultiLineString", coordinates: lines } };
+}
+const bordersCache = new WeakMap();
+function getBorders(d) { let b = bordersCache.get(d); if (!b) bordersCache.set(d, b = sharedBorders(d)); return b; }
+const bordersStyle = () => coastOn() ? { stroke: true, color: "#7c8a8e", weight: BORDER_W, fill: false } : { stroke: false };
+function growWeight() {
+  const mpp = 156543.03 * Math.cos(map.getCenter().lat * Math.PI / 180) / Math.pow(2, map.getZoom());
+  return Math.max(1, Math.min(400, 2 * GROW / mpp));
+}
+// The color extended to the coastline is opaque, already blended with the grey of the land (85% color): CSS transparency on the whole
+// layer makes horizontal bands vanish from the drawing (verified in Chromium).
+const soft = (c, a = 0.85) => {
+  const m = /^#([0-9a-f]{6})$/i.exec(c); if (!m) return c;
+  const v = parseInt(m[1], 16), g = [0xec, 0xee, 0xec];
+  return "#" + [(v >> 16) & 255, (v >> 8) & 255, v & 255].map((x, i) => Math.round(a * x + (1 - a) * g[i]).toString(16).padStart(2, "0")).join("");
+};
+// Color extended to the coastline: wide outlines first, then the fills on top, so the edge of one state does not stain its neighbour.
+const growStyle = year => f => {
+  const c = colorOf(f);
+  if (!coastOn() || !c) return { stroke: false, fill: false };
+  return { stroke: true, color: soft(c, isCont(f) ? 0.45 : 0.85), opacity: 1, weight: growWeight(), lineJoin: "round", fill: false };
+};
+const growFillStyle = year => f => {
+  const c = colorOf(f);
+  if (!coastOn() || !c) return { stroke: false, fill: false };
+  return { stroke: false, fill: true, fillColor: soft(c, isCont(f) ? 0.45 : 0.85), fillOpacity: 1 };
+};
+
+const sIdx = () => { const ys = years(), v = +$("slider").value; let b = 0; ys.forEach((y, i) => { if (Math.abs(y - v) < Math.abs(ys[b] - v)) b = i; }); return b; };   // nearest available year
+const setIdx = i => { $("slider").value = years()[i]; };
+function buildSlider(keep) {
+  const ys = years();
+  $("slider").min = ys[0]; $("slider").max = ys[ys.length - 1]; $("slider").step = 1;   // the slider runs on real years: spacing proportional to time
+  setIdx(Math.max(0, ys.indexOf(keep ?? currentYear)));
+  $("ticks").innerHTML = ys.map(y => `<option value="${y}"></option>`).join("");
+  $("avail").textContent = "";
+  drawTickLabels();
+}
+// Under the slider: first and last year plus as many intermediate ones as fit without overlapping
+function drawTickLabels() {
+  const ys = years(), box = $("tickLabels"), W = $("slider").clientWidth || box.clientWidth;
+  box.innerHTML = "";
+  if (!ys.length || W < 60) return;
+  const n = ys.length, pad = 8, span = ys[n - 1] - ys[0] || 1, pos = i => pad + (ys[i] - ys[0]) / span * (W - 2 * pad);
+  const lw = 26, picked = [0, n - 1];           // approximate label width in px
+  const fits = i => picked.every(j => Math.abs(pos(i) - pos(j)) >= lw + 4);
+  const order = [];                              // midpoints first, so the choice stays evenly spread
+  (function bis(a, b) { if (b - a < 2) return; const m = (a + b) >> 1; order.push(m); bis(a, m); bis(m, b); })(0, n - 1);
+  order.forEach(i => { if (fits(i)) picked.push(i); });
+  picked.sort((a, b) => a - b).forEach(i => {
+    const e = document.createElement("span");
+    e.textContent = ys[i]; e.style.left = pos(i) + "px";
+    if (custom.some(c => c.year === ys[i])) e.style.fontWeight = "bold";
+    e.onclick = () => { setIdx(i); $("yearNote").textContent = ""; scheduleRender(90); };
+    box.appendChild(e);
+  });
+}
+window.addEventListener("resize", drawTickLabels);
+
+let renderTimer = 0;
+function scheduleRender(ms) { // year shown at once, map redrawn after a short pause (intermediate years are never loaded)
+  clearTimeout(renderTimer);
+  $("yearOut").textContent = years()[sIdx()];
+  renderTimer = setTimeout(render, ms);
+}
+async function render() {
+  clearTimeout(renderTimer);
+  const y = years()[sIdx()];
+  currentYear = y;
+  $("yearOut").textContent = y;
+  if (document.activeElement !== $("yearIn")) $("yearIn").value = y;
+  const my = ++token;
+  const full = custom.filter(c => c.year === y && c.full).pop();
+  const baseYear = [...BASE_YEARS].reverse().find(b => b <= y) ?? BASE_YEARS[0];
+  let data = full ? full.data : cache[baseYear];
+  if (!data) {
+    $("status").textContent = "Loading…";
+    try { data = cache[baseYear] = await loadBase(baseYear); }
+    catch (e) {
+      if (my !== token) return;
+      if (group) { map.removeLayer(group); group = null; }  // no map of another year under the wrong year
+      $("matches").innerHTML = "";
+      $("status").textContent = `Error loading the ${baseYear} map: check your connection. (${e.message})`;
+      return;
+    }
+  }
+  if (my !== token) return;
+  if (!full) touchCache(baseYear);
+
+  if (group) map.removeLayer(group);
+  group = L.layerGroup().addTo(map);
+  L.geoJSON(data, {
+    pane: "basePane", style: baseStyle(y),
+    onEachFeature(f, l) {
+      const p = f.properties || {};
+      if (p.NAME) l.bindTooltip(p.NAME, { sticky: true });
+      l.on("click", () => { toggleGroup(f); showWiki(f); });
+    }
+  }).addTo(group);
+  group.base = group.getLayers()[0];
+  group.data = data;
+  updateRivers();
+  group.grow = L.geoJSON(data, { pane: "growPane", interactive: false, style: growStyle(y) }).addTo(group);
+  group.growFill = L.geoJSON(data, { pane: "growPane", interactive: false, style: growFillStyle(y) }).addTo(group);
+  group.borders = L.geoJSON(getBorders(data), { pane: "borderPane", interactive: false, style: bordersStyle() }).addTo(group);
+
+  const over = custom.filter(c => c.year === y && !c.full);
+  over.forEach(c => L.geoJSON(c.data, {
+    pane: "customPane", style: () => ({ color: "#14352a", weight: 2, fillColor: c.color || PALETTE[0], fillOpacity: 0.8 }),
+    onEachFeature: (f, l) => l.bindTooltip(esc((f.properties && f.properties.NAME) || c.name), { sticky: true })
+  }).addTo(group));
+  group.over = over;
+
+  $("status").textContent = full ? `${y}: complete map "${full.name}"` :
+    `${y}: base map of ${baseYear}` + (NE_YEARS.includes(baseYear) ? " (Natural Earth 5.1.2, de facto + indicative corrections; light color = disputed territory)" : "") + (over.length ? ` + ${over.length} of your file(s)` : "");
+  recolor();
+}
+
+function recolor() {
+  if (!group) return;
+  const y = currentYear, names = new Map();
+  group.base.setStyle(baseStyle(y));
+  if (group.grow) group.grow.setStyle(growStyle(y));
+  if (group.growFill) group.growFill.setStyle(growFillStyle(y));
+  if (group.borders) group.borders.setStyle(bordersStyle());
+  group.base.eachLayer(l => { const n = (l.feature.properties || {}).NAME, c = colorOf(l.feature); if (c && n) names.set(n, c); });
+  (group.over || []).forEach(c => names.set(c.name, c.color || PALETTE[0]));
+  $("matches").innerHTML = [...names].sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([n, c]) => `<li><span class="dot" style="background:${c}"></span>${esc(n)}</li>`).join("") || "<li>No areas</li>";
+}
+
+function listCustom() {
+  $("customs").innerHTML = custom.sort((a, b) => a.year - b.year).map(c =>
+    `<li>${c.full ? "" : `<input type="color" data-cid="${c.id}" value="${c.color || PALETTE[0]}" aria-label="Color of ${esc(c.name)}">`}<span>${c.year} · ${esc(c.name)}${c.full ? " (complete)" : ""}</span><button data-id="${c.id}" title="Remove" aria-label="Remove ${esc(c.name)}">×</button></li>`).join("");
+}
+
+// Loading files
+$("file").addEventListener("change", async e => {
+  const f = e.target.files[0]; e.target.value = "";
+  if (!f) return;
+  try {
+    const data = JSON.parse(await f.text());
+    if (!/^(FeatureCollection|Feature|Polygon|MultiPolygon|GeometryCollection)$/.test(data.type)) throw 0;
+    L.geoJSON(data); // check that Leaflet can read it
+    pending = { name: f.name.replace(/\.(geo)?json$/i, ""), data };
+  } catch (err) { alert("The file is not a valid GeoJSON."); return; }
+  const guess = (f.name.match(/(1\d{3}|20\d{2})/) || [])[1];
+  $("fname").textContent = f.name;
+  $("cyear").value = guess || currentYear;
+  $("cfull").checked = false;
+  $("addbox").hidden = false;
+});
+$("ccancel").onclick = () => { pending = null; $("addbox").hidden = true; };
+$("cadd").onclick = () => {
+  const year = parseInt($("cyear").value, 10);
+  if (!pending || isNaN(year)) { $("cyear").focus(); return; }
+  custom.push({ id: Date.now(), year, name: pending.name, full: $("cfull").checked, color: PALETTE[custom.length % PALETTE.length], data: fixAntimeridian(pending.data) });
+  pending = null; $("addbox").hidden = true;
+  save(); listCustom(); buildSlider(year); render();
+};
+$("customs").addEventListener("click", e => {
+  const id = e.target.dataset && e.target.dataset.id;
+  if (!id) return;
+  custom = custom.filter(c => String(c.id) !== id);
+  save(); listCustom(); buildSlider(); render();
+});
+
+// Detail level: Natural Earth 1:50m land (below: fill; above: outline only)
+const LAND = "https://cdn.jsdelivr.net/gh/nvkelso/natural-earth-vector@master/geojson/ne_50m_land.geojson";
+// Order from the bottom: land (fill) < color extended to the coast < historical map < relief (blended over the colors) < borders < rivers < lakes < sea mask < your areas < coastline outline
+[["landUnder", 350], ["growPane", 370], ["basePane", 380], ["reliefPane", 385], ["borderPane", 390], ["riverPane", 392], ["lakePane", 395], ["seaMask", 400], ["customPane", 420], ["landOver", 450]]
+  .forEach(([n, z]) => { map.createPane(n).style.zIndex = z; });
+["landUnder", "growPane", "reliefPane", "borderPane", "riverPane", "lakePane", "seaMask", "landOver"].forEach(n => { map.getPane(n).style.pointerEvents = "none"; });
+map.getPane("reliefPane").style.mixBlendMode = "multiply"; // the hillshade blends with the color underneath
+const SEA = "#d7e3ea"; // same color as the map background
+const NE = "https://cdn.jsdelivr.net/gh/nvkelso/natural-earth-vector@master/geojson/";
+const RELIEF = "https://server.arcgisonline.com/ArcGIS/rest/services/Elevation/World_Hillshade/MapServer/tile/{z}/{y}/{x}"; // hillshade only: rivers are the vector ones only
+let landData = null, landLayers = null, seaMask = null, lakesData = null, riversData = null, bgLayers = null;
+
+// Aligns rivers with borders where they follow them: river stretches close to a border (for a long enough run)
+// are replaced by the border path, which is more detailed in the 1:10m data.
+function makeSnapper(borderFeature) {
+  const EPS = 0.08, STEP = 0.03, MINRUN = 10, CELL = 0.1;
+  const P = borderFeature.geometry.coordinates;           // border polylines
+  const grid = new Map();
+  const cx = lon => Math.floor((lon + 180) / CELL), cy = lat => Math.floor((lat + 90) / CELL);
+  const gk = (a, b) => a * 100000 + b;
+  P.forEach((line, pi) => {
+    for (let si = 0; si < line.length - 1; si++) {
+      const a = line[si], b = line[si + 1];
+      const x0 = cx(Math.min(a[0], b[0])), x1 = cx(Math.max(a[0], b[0])), y0 = cy(Math.min(a[1], b[1])), y1 = cy(Math.max(a[1], b[1]));
+      for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) {
+        const k = gk(x, y); let c = grid.get(k); if (!c) grid.set(k, c = []); c.push(pi, si);
+      }
+    }
+  });
+  function nearest(lon, lat) {
+    const k = Math.max(0.2, Math.cos(lat * Math.PI / 180));
+    const rx = Math.ceil(EPS / k / CELL), ry = Math.ceil(EPS / CELL);
+    let best = null;
+    const X = cx(lon), Y = cy(lat);
+    for (let x = X - rx; x <= X + rx; x++) for (let y = Y - ry; y <= Y + ry; y++) {
+      const c = grid.get(gk(x, y)); if (!c) continue;
+      for (let i = 0; i < c.length; i += 2) {
+        const pi = c[i], si = c[i + 1], a = P[pi][si], b = P[pi][si + 1];
+        const ax = a[0] * k, ay = a[1], bx = b[0] * k, by = b[1], px = lon * k, py = lat;
+        const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
+        let t = l2 ? ((px - ax) * dx + (py - ay) * dy) / l2 : 0; t = Math.max(0, Math.min(1, t));
+        const ex = ax + t * dx - px, ey = ay + t * dy - py, d = Math.sqrt(ex * ex + ey * ey);
+        if (d < EPS && (!best || d < best.d)) best = { pi, si, t, d };
+      }
+    }
+    return best;
+  }
+  const proj = (h) => { const a = P[h.pi][h.si], b = P[h.pi][h.si + 1]; return [a[0] + h.t * (b[0] - a[0]), a[1] + h.t * (b[1] - a[1])]; };
+  function subpath(h0, h1) {
+    const line = P[h0.pi], out = [proj(h0)];
+    if (h0.si + h0.t <= h1.si + h1.t) { for (let i = h0.si + 1; i <= h1.si; i++) out.push(line[i]); }
+    else { for (let i = h0.si; i > h1.si; i--) out.push(line[i]); }
+    out.push(proj(h1));
+    return out;
+  }
+  function snapLine(line) {
+    const S = []; // samples: { pt, vertex, hit }
+    for (let i = 0; i < line.length; i++) {
+      S.push({ pt: line[i], vertex: true });
+      if (i < line.length - 1) {
+        const a = line[i], b = line[i + 1], k = Math.cos(a[1] * Math.PI / 180);
+        const n = Math.floor(Math.hypot((b[0] - a[0]) * k, b[1] - a[1]) / STEP);
+        for (let j = 1; j <= n; j++) { const t = j / (n + 1); S.push({ pt: [a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])], vertex: false }); }
+      }
+    }
+    S.forEach(s => { s.hit = nearest(s.pt[0], s.pt[1]); });
+    const out = []; let changed = false;
+    for (let i = 0; i < S.length;) {
+      const h = S[i].hit;
+      if (!h) { if (S[i].vertex) out.push(S[i].pt); i++; continue; }
+      let j = i; while (j + 1 < S.length && S[j + 1].hit && S[j + 1].hit.pi === h.pi) j++;
+      if (j - i + 1 >= MINRUN) { out.push(...subpath(S[i].hit, S[j].hit)); changed = true; }
+      else for (let q = i; q <= j; q++) if (S[q].vertex) out.push(S[q].pt);
+      i = j + 1;
+    }
+    return changed ? out : line;
+  }
+  return snapLine;
+}
+const snapFeature = (snap, f) => ({ type: "Feature", properties: f.properties, geometry: { type: "MultiLineString", coordinates: f.geometry.coordinates.map(snap) } });
+function snapRivers(rivers, borderFeature) {
+  const snap = makeSnapper(borderFeature);
+  return { type: "FeatureCollection", features: rivers.features.map(f => snapFeature(snap, f)) };
+}
+// Same thing in chunks, for the detailed rivers (there are many): the page stays usable while it computes.
+async function snapRiversAsync(rivers, borderFeature) {
+  const snap = makeSnapper(borderFeature), out = [];
+  for (let i = 0; i < rivers.features.length; i += 25) {
+    rivers.features.slice(i, i + 25).forEach(f => out.push(snapFeature(snap, f)));
+    await new Promise(r => setTimeout(r));
+  }
+  return { type: "FeatureCollection", features: out };
+}
+
+// Rivers: ONE vector level at a time. Natural Earth 1:50m from afar; from RIVER_ZOOM up the 1:10m (many more rivers, more precise).
+// In 2020 and 2025 the stretches that coincide with a border follow the border, at both levels. The 1:10m is only downloaded when needed.
+const RIVER_ZOOM = 6;
+const rw = r => r <= 4 ? BORDER_W : r <= 6 ? 0.65 : 0.5;
+let riverLayer = null, riverShown = null, riverToken = 0;
+let riversOnly = null, snappedRivers = {}, detailRivers = null, detailLoading = null, detailSnapP = {};
+// At the detailed level a river appears from the zoom given in the data (min_zoom), so there is no clutter at zoom 6
+const riverStyle = detail => f => {
+  const p = f.properties || {}, on = !detail || Number(p.min_zoom || 0) <= map.getZoom();
+  return { color: "#7fa6bd", weight: on ? rw(p.scalerank) : 0, opacity: on ? 0.9 : 0 };
+};
+async function withStatus(msg, promise) {
+  const prev = $("status").textContent; $("status").textContent = msg;
+  try { return await promise; } finally { if ($("status").textContent === msg) $("status").textContent = prev; }
+}
+async function updateRivers() {
+  if (!bgLayers || !riversData) return;
+  const my = ++riverToken, detail = map.getZoom() >= RIVER_ZOOM;
+  const ne = () => NE_YEARS.includes(currentYear) && group && group.data && group.data === cache[currentYear] ? String(currentYear).slice(2) : "";
+  const yr = ne(), key = (detail ? "d" : "g") + yr;
+  if (riverLayer && riverShown === key) { riverLayer.setStyle(riverStyle(detail)); return; } // same level: only visibility is updated
+  let fc;
+  if (!detail) {
+    if (!riversOnly) riversOnly = { type: "FeatureCollection", features: riversData.features.filter(f => f.properties.featurecla === "River") };
+    fc = yr ? (snappedRivers[yr] = snappedRivers[yr] || snapRivers(riversOnly, getBorders(group.data))) : riversOnly;
+  } else {
+    if (!detailRivers) {
+      if (!detailLoading) detailLoading = fetch(NE + "ne_10m_rivers_lake_centerlines.geojson").then(r => r.json()).then(d => {
+        detailRivers = { type: "FeatureCollection", features: d.features.filter(f => f.properties.featurecla === "River") };
+      }).catch(e => { detailLoading = null; throw e; });
+      try { await withStatus("Loading detailed rivers…", detailLoading); }
+      catch (e) { $("status").textContent = "Detailed rivers not available: the simplified ones remain."; return; }
+      if (my !== riverToken) return;
+    }
+    fc = detailRivers;
+    if (yr) {
+      if (!detailSnapP[yr]) detailSnapP[yr] = snapRiversAsync(detailRivers, getBorders(group.data));
+      fc = await withStatus("Aligning rivers with borders…", detailSnapP[yr]);
+      if (my !== riverToken) return; // the year or zoom changed meanwhile: the most recent call takes care of it
+    }
+  }
+  if (riverLayer && bgLayers) bgLayers.removeLayer(riverLayer);
+  riverLayer = L.geoJSON(fc, { pane: "riverPane", interactive: false, style: riverStyle(detail) });
+  bgLayers.addLayer(riverLayer);
+  riverShown = key;
+}
+
+// Physical background: relief (raster tiles), rivers and lakes (vector). The sea is covered by the mask, so the coastline is needed.
+async function applyBackground() {
+  if (bgLayers) { map.removeLayer(bgLayers); bgLayers = null; }
+  riverLayer = null; riverShown = null; riverToken++;
+  $("bg").disabled = !$("coast").checked;
+  if (!$("bg").checked || !landLayers) return;
+  try {
+    if (!lakesData) lakesData = await (await fetch(NE + "ne_50m_lakes.geojson")).json();
+    if (!riversData) riversData = await (await fetch(NE + "ne_50m_rivers_lake_centerlines.geojson")).json();
+  } catch (e) { $("status").textContent = "Rivers and lakes not available: check your connection."; return; }
+  if (!$("bg").checked || !landLayers || bgLayers) return;
+  bgLayers = L.layerGroup([
+    L.tileLayer(RELIEF, { pane: "reliefPane", opacity: 0.75, maxNativeZoom: 12, attribution: "Relief © Esri" }),
+    L.geoJSON(lakesData, { pane: "lakePane", interactive: false, style: { color: "#9db8c6", weight: 0.6, fillColor: SEA, fillOpacity: 1 } })
+  ]).addTo(map);
+  updateRivers();
+}
+
+async function toggleCoast() {
+  if (landLayers) { map.removeLayer(landLayers); landLayers = null; }
+  applyBackground(); // without the coastline the background is removed
+  if (!$("coast").checked) { recolor(); return; }
+  try {
+    if (!landData) landData = await (await fetch(LAND)).json();
+  } catch (e) { $("status").textContent = "Detailed coastline not available: check your connection."; return; }
+  if (!$("coast").checked || landLayers) return;
+  if (!seaMask) {
+    // "Sea" polygon: one big rectangle with all the rings of the land (even/odd fill),
+    // so only what lies outside the coast stays filled, covering the parts of the historical map at sea.
+    const rings = [[[-400, -90], [400, -90], [400, 90], [-400, 90], [-400, -90]]];
+    landData.features.forEach(f => {
+      const g = f.geometry;
+      (g.type === "Polygon" ? [g.coordinates] : g.coordinates).forEach(poly => poly.forEach(r => rings.push(r)));
+    });
+    seaMask = { type: "Feature", properties: {}, geometry: { type: "Polygon", coordinates: rings } };
+  }
+  landLayers = L.layerGroup([
+    L.geoJSON(landData, { pane: "landUnder", interactive: false, style: { color: "#7c8a8e", weight: BORDER_W, fillColor: "#eceeec", fillOpacity: 1 } }),
+    L.geoJSON(seaMask, { pane: "seaMask", interactive: false, style: { stroke: false, fillColor: SEA, fillOpacity: 1 } }),
+    L.geoJSON(landData, { pane: "landOver", interactive: false, style: { color: "#7c8a8e", weight: BORDER_W, fill: false } })
+  ]).addTo(map);
+  recolor();
+  applyBackground();
+}
+$("coast").addEventListener("change", toggleCoast);
+$("bg").addEventListener("change", applyBackground);
+map.on("zoomend", recolor);
+map.on("zoomend", updateRivers);
+toggleCoast();
+
+$("slider").addEventListener("input", () => { $("yearNote").textContent = ""; scheduleRender(120); });   // the map follows the nearest available year; the thumb moves freely
+$("slider").addEventListener("change", () => setIdx(sIdx()));   // on release the thumb snaps to the available year
+// Year typed by hand: go to the nearest available year that does not exceed it (the map valid for that year)
+function goYear() {
+  const raw = $("yearIn").value.trim(), v = Math.round(Number(raw));
+  if (!raw || !Number.isFinite(v)) { $("yearNote").textContent = "Type a year in digits, e.g. 1936."; return; }
+  const ys = years(), idx = Math.max(0, ys.findLastIndex(y => y <= v)), y = ys[idx];
+  $("yearNote").textContent = y === v ? "" : v < ys[0] ? `No map before ${ys[0]}: showing ${y}.` : `There is no map for ${v}: showing the one for ${y}, the most recent up to that year.`;
+  setIdx(idx); $("yearIn").value = y; render();
+}
+$("yearGo").onclick = goYear;
+// Previous / next available year: buttons and the ← → keys (not while typing in a text or number box; the focused slider already handles them)
+function stepYear(d) {
+  const v = Math.min(years().length - 1, Math.max(0, sIdx() + d));
+  if (v === sIdx() && Math.abs(+$("slider").value - years()[v]) < 1) return;
+  setIdx(v); $("yearNote").textContent = ""; scheduleRender(90);
+}
+$("yearPrev").onclick = () => stepYear(-1);
+$("yearNext").onclick = () => stepYear(1);
+document.addEventListener("keydown", e => {
+  if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+  const t = e.target, tag = t && t.tagName;
+  if (tag === "TEXTAREA" || tag === "SELECT" || (tag === "INPUT" && t.type !== "range" && t.type !== "checkbox") || e.altKey || e.ctrlKey || e.metaKey) return;
+  e.preventDefault(); stepYear(e.key === "ArrowLeft" ? -1 : 1);
+});
+$("yearIn").addEventListener("keydown", e => { if (e.key === "Enter") goYear(); });
+$("sels").addEventListener("input", e => {
+  const i = e.target.dataset && e.target.dataset.i;
+  if (i === undefined || !sel[i]) return;
+  sel[i].color = e.target.value; saveSel(); recolor();
+});
+$("sels").addEventListener("click", e => {
+  const i = e.target.dataset && e.target.dataset.i;
+  if (e.target.tagName !== "BUTTON" || i === undefined) return;
+  sel.splice(+i, 1); saveSel(); listSel(); recolor();
+});
+$("colorall").onclick = () => {
+  if (!group || !group.data) return;
+  sel = assignColors(group.data, new Map(sel.map(x => [norm(x.key), x.color])));
+  saveSel(); listSel(); recolor();
+};
+$("clearall").onclick = () => { sel = []; saveSel(); listSel(); recolor(); };
+function addTerm() {
+  const v = canonTyped($("addterm").value);
+  if (!v) return;
+  if (!sel.some(x => norm(x.key) === norm(v))) sel.push({ key: v, color: nextColor() });
+  $("addterm").value = ""; saveSel(); listSel(); recolor();
+}
+$("addbtn").onclick = addTerm;
+$("addterm").addEventListener("keydown", e => { if (e.key === "Enter") addTerm(); });
+$("customs").addEventListener("input", e => {
+  const id = e.target.dataset && e.target.dataset.cid, c = custom.find(c => String(c.id) === id);
+  if (!c) return;
+  c.color = e.target.value; save(); render();
+});
+
+// ---- Wikipedia link for the clicked territory, chosen by name and year ----
+// Best page for the name shown that year: first the table by year, then the table of fixed titles, otherwise the name without its brackets.
+const WIKI_YEAR = {
+  "Germany": [[0, "German Empire"], [1919, "Weimar Republic"], [1933, "Nazi Germany"], [1990, "Germany"]],
+  "Italy": [[0, "Kingdom of Italy (1861–1946)"], [1946, "Italy"]], "Kingdom of Italy": [[0, "Kingdom of Italy (1861–1946)"]],
+  "Persia": [[0, "Qajar Iran"], [1925, "Imperial State of Iran"]], "Iran": [[0, "Qajar Iran"], [1925, "Imperial State of Iran"], [1979, "Iran"]],
+  "Siam": [[0, "Rattanakosin Kingdom"], [1932, "Thailand"]], "Thailand": [[0, "Rattanakosin Kingdom"], [1932, "Thailand"]],
+  "Ceylon": [[0, "British Ceylon"], [1948, "Dominion of Ceylon"]], "Burma": [[0, "British rule in Burma"], [1948, "Union of Burma"]],
+  "China": [[0, "Qing dynasty"], [1912, "Republic of China (1912–1949)"], [1949, "China"]],
+  "Poland": [[0, "Poland"], [1918, "Second Polish Republic"], [1945, "Polish People's Republic"], [1990, "Poland"]],
+  "Hungary": [[0, "Kingdom of Hungary"], [1920, "Kingdom of Hungary (1920–1946)"], [1946, "Hungary"]],
+  "Romania": [[0, "Kingdom of Romania"], [1947, "Socialist Republic of Romania"], [1990, "Romania"]],
+  "Bulgaria": [[0, "Principality of Bulgaria"], [1908, "Kingdom of Bulgaria"], [1946, "People's Republic of Bulgaria"], [1990, "Bulgaria"]],
+  "Yugoslavia": [[0, "Socialist Federal Republic of Yugoslavia"]],
+  "Egypt": [[0, "Khedivate of Egypt"], [1922, "Kingdom of Egypt"], [1953, "Egypt"]],
+  "Japan": [[0, "Empire of Japan"], [1947, "Japan"]],
+  "Russia": [[0, "Russian Empire"], [1917, "Russian Soviet Federative Socialist Republic"], [1991, "Russia"]],
+  "Greece": [[0, "Kingdom of Greece"], [1974, "Greece"]], "Spain": [[0, "Spain"], [1931, "Second Spanish Republic"], [1939, "Francoist Spain"], [1975, "Spain"]],
+  "Ethiopia": [[0, "Ethiopian Empire"], [1974, "Derg"], [1987, "Communist Ethiopia"], [1991, "Ethiopia"]], "Afghanistan": [[0, "Emirate of Afghanistan"], [1926, "Kingdom of Afghanistan"], [1973, "Afghanistan"]],
+  "Iraq": [[0, "Kingdom of Iraq"], [1958, "Iraq"]], "Libya": [[0, "Italian Libya"], [1951, "Kingdom of Libya"], [1969, "Libya"]],
+  "Cuba": [[0, "Cuba"]], "Mexico": [[0, "Mexico"]], "Brazil": [[0, "Empire of Brazil"], [1889, "First Brazilian Republic"], [1930, "Brazil"]],
+};
+const WIKI = {
+  "Warsaw Governorate-General (German occupation)": "Governorate General of Warsaw", "Lublin Governorate-General (Austro-Hungarian occupation)": "Military Governorate of Lublin", "Ober Ost (German military administration)": "Ober Ost",
+  "Volhynia (Austro-Hungarian occupation)": "Volhynia", "Serbia (Austro-Hungarian occupation)": "Military Governorate of Serbia", "Serbia (Bulgarian occupation)": "Serbian campaign (1915)", "Northern Epirus (Greek occupation)": "Northern Epirus",
+  "Vlorë (Italian occupation)": "Vlorë", "Northern Albania (Montenegrin and Serbian occupation)": "Principality of Albania", "Mesopotamia (British occupation)": "Mesopotamian campaign", "Eastern Anatolia (Russian occupation)": "Caucasus campaign",
+  "Emirate of Nejd and Hasa": "Emirate of Nejd and Hasa", "Emirate of Mecca (Hejaz)": "Emirate of Mecca", "Emirate of Asir (Idrisid)": "Idrisid Emirate of Asir", "Emirate of Ha'il": "Emirate of Jabal Shammar",
+  "Uryankhay Krai (Russian protectorate)": "Uryankhay Krai", "Chaco Boreal (disputed with Bolivia)": "Chaco Boreal", "Autonomous Mongolia (Bogd Khanate)": "Bogd Khanate of Mongolia", "Kingdom of Montenegro": "Kingdom of Montenegro", "Grand Duchy of Finland (Russian Empire)": "Grand Duchy of Finland",
+  "Syria (Ottoman Empire)": "Ottoman Syria", "Lebanon (Ottoman Empire)": "Mount Lebanon Mutasarrifate", "Transjordan (Ottoman Empire)": "Transjordan (region)", "Palestine (Ottoman Empire)": "Ottoman Palestine", "Mesopotamia (Ottoman Empire)": "Ottoman Iraq",
+  "Togoland (French occupation)": "Togoland campaign", "Togoland (British occupation)": "Togoland campaign", "Kamerun (French occupation)": "Kamerun campaign", "Kamerun (British occupation)": "Kamerun campaign", "Danish West Indies (Denmark)": "Danish West Indies",
+  "Yemen (Zaydi imamate, Ottoman suzerainty)": "Yemen Vilayet",
+  "Saar Basin Territory": "Territory of the Saar Basin", "Central Lithuania (not recognized)": "Republic of Central Lithuania", "Memel Territory": "Klaipėda Region", "Upper Silesia (Inter-Allied administration)": "1921 Upper Silesia plebiscite", "Far Eastern Republic (Soviet-backed, not recognized)": "Far Eastern Republic", "Persian Socialist Soviet Republic (not recognized)": "Persian Socialist Soviet Republic", "Outer Mongolia (Chinese-occupied)": "Mongolia under Chinese rule", "Eastern Thrace (Greek occupation)": "Army of Thrace", "Western Anatolia (Greek occupation)": "Occupation of Smyrna", "Cilicia (French occupation)": "Franco-Turkish War", "Antalya (Italian occupation)": "Italian occupation of Adalia", "Baranya (Yugoslav-occupied)": "Serbian–Hungarian Baranya–Baja Republic", "State of Turkey": "Turkish National Movement", "Principality of Albania": "Principality of Albania", "Kingdom of Greece": "Kingdom of Greece", "Russian Soviet Federative Socialist Republic": "Russian Soviet Federative Socialist Republic", "Democratic Republic of Georgia": "Democratic Republic of Georgia", "Sultanate of Egypt (British protectorate)": "Sultanate of Egypt", "Tangier (special status)": "Tangier International Zone", "Trans-Juba (Italian colony)": "Oltre Giuba", "Weihaiwei (British lease)": "British Weihaiwei", "Tacna (Chilean administration)": "Tacna–Arica dispute", "Amazon Trapezium (Peruvian-administered)": "Salomón–Lozano Treaty", "Sultanate of Nejd (with occupied Hejaz)": "Sultanate of Nejd", "Albanian Republic": "Albanian Republic (1925–1928)", "Emirate of Afghanistan": "Emirate of Afghanistan", "Mongolian People's Republic": "Mongolian People's Republic", "Mandatory Iraq": "Mandatory Iraq", "Kingdom of Spain": "Bourbon Restoration in Spain", "Kingdom of Hejaz and Nejd": "Kingdom of Hejaz and Nejd",
+  "Free City of Danzig": "Free City of Danzig", "Federal State of Austria": "Federal State of Austria", "Kingdom of Albania": "Albanian Kingdom (1928–1939)", "Kingdom of Bulgaria": "Kingdom of Bulgaria",
+  "General Government": "General Government", "French State": "Vichy France", "France (German-occupied zone)": "Zone occupée", "Alsace-Lorraine (German-annexed de facto)": "Alsace-Lorraine", "Protectorate of Bohemia and Moravia": "Protectorate of Bohemia and Moravia", "Slovak Republic": "Slovak Republic (1939–1945)", "Kingdom of Hungary": "Kingdom of Hungary (1920–1946)", "Dominion of Newfoundland": "Dominion of Newfoundland", "Manchukuo (Japanese-controlled)": "Manchukuo", "Mengjiang (Japanese-controlled)": "Mengjiang", "Reorganized National Government of China (Japanese-controlled)": "Wang Jingwei regime", "Italian Libya": "Italian Libya", "Italian Ethiopia": "Italian East Africa", "Italian Somaliland": "Italian Somaliland", "Italian Eritrea": "Italian Eritrea", "Italian Islands of the Aegean": "Italian Islands of the Aegean", "Albania (Italian protectorate)": "Albanian Kingdom (1939–1943)", "Southern Albania (Greek-held)": "Greco-Italian War", "British Somaliland (Italian-occupied)": "Italian conquest of British Somaliland", "Tangier (Spanish-occupied)": "Tangier International Zone", "Korea (Japanese rule)": "Korea under Japanese rule", "Taiwan (Japanese rule)": "Taiwan under Japanese rule", "Tuvan People's Republic": "Tuvan People's Republic", "Vietnam (French Indochina)": "French Indochina", "Norway (German-occupied)": "German occupation of Norway", "Denmark (German-occupied)": "German occupation of Denmark", "Netherlands (German-occupied)": "German occupation of the Netherlands", "Belgium (German military administration)": "Military Administration in Belgium and Northern France", "Luxembourg (German-administered)": "German occupation of Luxembourg", "Jersey (German-occupied)": "German occupation of the Channel Islands", "Guernsey (German-occupied)": "German occupation of the Channel Islands", "Marshall Islands (Japanese mandate)": "South Seas Mandate", "Caroline Islands (Japanese mandate)": "South Seas Mandate", "Mariana Islands (Japanese mandate)": "South Seas Mandate", "Palau (Japanese mandate)": "South Seas Mandate", "Lebanon (French mandate)": "Mandate for Syria and the Lebanon", "Faroe Islands (British-occupied)": "British occupation of the Faroe Islands", "German Reich": "Nazi Germany", "Empire of Japan": "Empire of Japan", "Kingdom of Romania": "Kingdom of Romania",
+  "Sarawak (British Military Administration)": "Raj of Sarawak", "North Borneo (British Military Administration)": "British North Borneo",
+  "Germany (US occupation zone)": "American occupation zone of Germany", "Germany (British occupation zone)": "British occupation zone of Germany", "Germany (French occupation zone)": "French occupation zone of Germany", "Germany (Soviet occupation zone)": "Soviet occupation zone of Germany", "Berlin (Western Allied sectors)": "West Berlin", "Venezia Giulia (Zone A, Allied administration)": "Morgan Line", "Dodecanese (British administration)": "Italian Islands of the Aegean", "Manchuria (Soviet occupation)": "Soviet occupation of Manchuria", "East Turkestan Republic (Soviet-backed, not recognized)": "Second East Turkestan Republic", "Korea (Soviet occupation zone)": "Soviet Civil Administration", "Korea (US occupation zone)": "United States Army Military Government in Korea", "Democratic Republic of Vietnam (Chinese-occupied, not recognized)": "Chinese occupation of northern Vietnam, 1945–1946", "Southern Vietnam (French and British occupation)": "First Indochina War", "Republic of Indonesia (not recognized)": "Indonesian National Revolution", "Dutch East Indies": "Dutch East Indies", "Azerbaijan People's Government (Soviet-backed, not recognized)": "Azerbaijan People's Government", "Mandatory Palestine": "Mandatory Palestine", "Ogaden (British administration)": "British Military Administration (Ogaden)", "British India": "British Raj", "British Malaya": "British Malaya", "Straits Settlements": "Straits Settlements", "Italian Somaliland (British administration)": "Italian Somaliland", "Ruanda-Urundi (Belgian mandate)": "Ruanda-Urundi",
+  "Tibet (de facto independent, not recognized)": "Tibet (1912–1951)", "Democratic Republic of Vietnam (Viet Minh-held, not recognized)": "Viet Minh", "State of Vietnam": "State of Vietnam", "French India": "French India", "Tripolitania (British administration)": "British Military Administration (Libya)", "Cyrenaica (British administration)": "Emirate of Cyrenaica", "Fezzan-Ghadames (French administration)": "Fezzan-Ghadames Military Territory", "Free Territory of Trieste (Zone A, Allied administration)": "Free Territory of Trieste", "Free Territory of Trieste (Zone B, Yugoslav administration)": "Free Territory of Trieste", "Eritrea (British administration)": "British Administration of Eritrea",
+  "Spanish Morocco": "Spanish protectorate in Morocco", "Saar (French protectorate)": "Saar (protectorate)", "Cape Juby (Spain)": "Cape Juby", "Tangier International Zone": "Tangier International Zone", "Saar Protectorate (France)": "Saar (protectorate)", "British Togoland": "British Togoland", "British Somaliland": "British Somaliland", "Trust Territory of Somaliland (Italian administration)": "Trust Territory of Somaliland", "Gold Coast (British colony)": "Gold Coast (British colony)", "Colony and Protectorate of Nigeria": "Colony and Protectorate of Nigeria", "Colony of Singapore": "Colony of Singapore", "Ubangi-Shari (France)": "Ubangi-Shari", "Middle Congo (France)": "Middle Congo", "Kingdom of Iraq": "Kingdom of Iraq", "Belgian Congo": "Belgian Congo",
+  "Mutawakkilite Kingdom of Yemen": "Kingdom of Yemen", "Zanzibar (British protectorate)": "Sultanate of Zanzibar", "Maldives (British protected state)": "Maldives", "Western Samoa (New Zealand trust territory)": "Western Samoa", "State of Singapore": "State of Singapore",
+  "Kingdom of Cambodia": "Kingdom of Cambodia (1953–1970)", "Spanish Ifni": "Ifni", "Tonga (British protected state)": "Tonga", "Swaziland (British protectorate)": "Swaziland",
+  "Guinea-Bissau (PAIGC-held, not recognized)": "PAIGC", "Laos (Pathet Lao-held, not recognized)": "Pathet Lao", "Republic of Vietnam": "South Vietnam", "Antigua (British associated state)": "Antigua and Barbuda", "Saint Vincent (British associated state)": "Saint Vincent and the Grenadines", "Saint Christopher-Nevis-Anguilla (British associated state)": "Saint Christopher, Nevis and Anguilla", "Suriname (Netherlands)": "Suriname (Kingdom of the Netherlands)", "Comoro Islands (French overseas territory)": "Comoros", "Portuguese Cape Verde": "Portuguese Cape Verde", "Seychelles": "Seychelles",
+  "German Empire": "German Empire", "Russian Empire": "Russian Empire", "Soviet Union": "Soviet Union", "Ottoman Empire": "Ottoman Empire", "Ottoman Sultanate": "Ottoman Empire",
+  "Turkey": "Turkey", "Türkiye": "Turkey", "Austria-Hungary": "Austria-Hungary", "Empire of Japan": "Empire of Japan", "Manchu Empire": "Qing dynasty",
+  "Chinese Warlords": "Warlord Era", "Manchuria": "Manchuria", "Gold Coast": "Gold Coast (British colony)", "Gold Coast (United Kingdom)": "Gold Coast (British colony)",
+  "Belgian Congo": "Belgian Congo", "Belgian Congo (Belgium)": "Belgian Congo", "Republic of the Congo (Léopoldville)": "Republic of the Congo (Léopoldville)",
+  "French Congo": "French Congo", "French Congo (France)": "French Congo", "British Raj": "British Raj", "British Raj (United Kingdom)": "British Raj",
+  "Dutch East Indies": "Dutch East Indies", "Dutch East Indies (Netherlands)": "Dutch East Indies", "French Indochina": "French Indochina", "French Indochina (France)": "French Indochina",
+  "French West Africa (France)": "French West Africa", "French Equatorial Africa (France)": "French Equatorial Africa", "Anglo-Egyptian Sudan": "Anglo-Egyptian Sudan",
+  "Anglo-Egyptian Sudan (United Kingdom)": "Anglo-Egyptian Sudan", "British Somaliland (United Kingdom)": "British Somaliland", "Italian Somaliland (Italy)": "Italian Somaliland",
+  "Eritrea (Italy)": "Italian Eritrea", "Ethiopia (Italy)": "Italian East Africa", "Libya (Italy)": "Italian Libya", "Algeria (France)": "French Algeria",
+  "Tunisia (French protectorate)": "French protectorate of Tunisia", "Morocco (French protectorate)": "French protectorate in Morocco", "Spanish Morocco": "Spanish Morocco",
+  "Syria (French mandate)": "Mandate for Syria and the Lebanon", "Mandatory Palestine (United Kingdom)": "Mandatory Palestine", "Mesopotamia (British mandate)": "Mandatory Iraq",
+  "Ruanda-Urundi (Belgian mandate)": "Ruanda-Urundi", "Egypt (British protectorate)": "Sultanate of Egypt", "Egypt (Ottoman Empire)": "Khedivate of Egypt",
+  "Egypt (United Kingdom)": "Kingdom of Egypt", "Germany (British zone)": "Allied-occupied Germany", "Germany (French zone)": "Allied-occupied Germany",
+  "Germany (US zone)": "Allied-occupied Germany", "Germany (Soviet zone)": "Allied-occupied Germany", "East Germany": "East Germany", "West Germany": "West Germany",
+  "Japan (US occupation)": "Occupation of Japan", "Korea (US occupation)": "United States Army Military Government in Korea", "Korea (Soviet occupation)": "Soviet Civil Administration",
+  "Korea": "Korean Empire", "Aden (British protectorate)": "Aden Protectorate", "Saar (French protectorate)": "Saar (protectorate)", "German East Africa (German Empire)": "German East Africa",
+  "German South-West Africa": "German South West Africa", "Kamerun": "German Kamerun", "Togoland": "Togoland", "Cyrenaica (British administration)": "British Military Administration (Libya)",
+  "Tripolitania (British administration)": "British Military Administration (Libya)", "Fezzan (French administration)": "French Military Territory of Fezzan-Ghadames",
+  "Kingdom of Yugoslavia": "Kingdom of Yugoslavia", "Kingdom of Serbs, Croats and Slovenes": "Kingdom of Yugoslavia", "Federal Republic of Yugoslavia": "Federal Republic of Yugoslavia",
+  "Czechoslovakia": "Czechoslovakia", "Union of South Africa": "Union of South Africa", "Taiwan": "Taiwan", "Tibet": "Tibet (1912–1951)", "Xinjiang": "Xinjiang",
+  "Crimea (Russia)": "Crimea", "Baikonur Cosmodrome (Kazakhstan; leased to Russia)": "Baikonur Cosmodrome", "Guantanamo Bay Naval Base (Cuba; leased to the United States)": "Guantanamo Bay Naval Base", "Abkhazia (Russia)": "Abkhazia", "South Ossetia (Russia)": "South Ossetia", "Transnistria (Russia)": "Transnistria",
+  "Western Sahara (Morocco)": "Western Sahara", "Kuwait (Iraqi-occupied)": "Kuwait Governorate", "Iranian territory (Iraqi-occupied)": "Iraqi invasion of Iran", "Democratic Republic of Vietnam": "North Vietnam", "Republic of South Vietnam": "South Vietnam", "Sinai (Israeli-occupied)": "Israeli occupation of the Sinai Peninsula", "State of Free Lebanon (Israeli-backed)": "State of Free Lebanon", "Brunei (British protectorate)": "British protectorate of Brunei", "South West Africa (South African-administered)": "South West Africa", "Northern Chad (Libyan-occupied)": "Chadian–Libyan War", "Marshall Islands (US trust territory)": "Trust Territory of the Pacific Islands", "Micronesia (US trust territory)": "Trust Territory of the Pacific Islands", "Northern Mariana Islands (US trust territory)": "Trust Territory of the Pacific Islands", "Palau (US trust territory)": "Trust Territory of the Pacific Islands", "Transkei (nominally independent)": "Transkei", "Bophuthatswana (nominally independent)": "Bophuthatswana", "Venda (nominally independent)": "Venda", "Ciskei (nominally independent)": "Ciskei", "Aouzou Strip (Libyan-occupied)": "Aouzou Strip", "Walvis Bay (South African enclave)": "Walvis Bay", "Eritrea (EPLF-held, not recognized)": "Eritrean People's Liberation Front", "Eritrea (Ethiopian-held)": "Eritrean War of Independence", "Greater Liberia (NPFL-held, not recognized)": "National Patriotic Front of Liberia", "Ukraine (Russian-occupied)": "Russian-occupied territories of Ukraine", "Gaza (Israeli-controlled)": "Gaza Strip",
+  "Nagorno-Karabakh (Armenian-controlled)": "Republic of Artsakh", "Nagorno-Karabakh and adjacent districts (Armenian-controlled)": "Republic of Artsakh", "Tamil Eelam (LTTE-controlled, not recognized)": "Tamil Eelam", "Iraqi Kurdistan (Iraq)": "Iraqi Kurdistan", "Taliban-held areas (not recognized)": "Taliban", "Junbish-held north (Afghanistan)": "Junbish-i Milli", "Republika Srpska (Bosnia and Herzegovina)": "Republika Srpska (1992–1995)", "Eastern Slavonia, Baranja and Western Syrmia (Serb-held)": "Eastern Slavonia, Baranja and Western Syrmia", "South Lebanon security zone (Israel)": "South Lebanon security belt", "Macao (Portugal)": "Portuguese Macau", "MLC territory (rebel-held, not recognized)": "Movement for the Liberation of the Congo", "RCD-Goma territory (rebel-held, not recognized)": "Rally for Congolese Democracy–Goma", "Northern Alliance-held areas (Afghanistan)": "Northern Alliance (Afghanistan)", "East Timor (UN-administered)": "United Nations Transitional Administration in East Timor", "Forces Nouvelles territory (rebel-held, not recognized)": "First Ivorian Civil War", "Islamic State (not recognized)": "Islamic State", "Donbas separatist-held areas (Ukraine)": "Donbas",
+  "Northern Cyprus": "Northern Cyprus", "UN Buffer Zone (Cyprus)": "United Nations Buffer Zone in Cyprus", "Hong Kong (United Kingdom)": "British Hong Kong", "Hong Kong (China)": "Hong Kong",
+  "Rapa Nui (Chile)": "Easter Island", "Kingdom of Hawaii": "Kingdom of Hawaii", "Sweden–Norway": "Union between Sweden and Norway", "Dominion of Newfoundland": "Dominion of Newfoundland",
+  "Grand Duchy of Finland (Russia)": "Grand Duchy of Finland", "Trucial Oman (British protectorate)": "Trucial States", "Muscat and Oman (British protectorate)": "Muscat and Oman",
+  "Qatar (British protectorate)": "British protectorate of Qatar", "Transjordan": "Emirate of Transjordan", "Kingdom of Hejaz": "Kingdom of Hejaz", "Emirate of Ha'il": "Emirate of Ha'il",
+};
+const wikiTitle = (name, y) => {
+  if (has(WIKI_YEAR, name)) { let t = WIKI_YEAR[name][0][1]; for (const [from, title] of WIKI_YEAR[name]) if (y >= from) t = title; return t; }
+  return has(WIKI, name) ? WIKI[name] : stripPar(name);
+};
+const wikiUrl = t => "https://en.wikipedia.org/wiki/" + encodeURIComponent(t.replace(/ /g, "_")).replace(/%2F/g, "/").replace(/%3A/g, ":").replace(/%28/g, "(").replace(/%29/g, ")");
+const wikiSearchUrl = (name, y) => "https://en.wikipedia.org/w/index.php?search=" + encodeURIComponent(`${stripPar(name)} ${y}`);
+const wikiCheck = {};  // title -> Promise<boolean>: the page exists and is not a disambiguation page (if Wikipedia cannot be asked, it is assumed fine)
+function wikiOk(title) {
+  if (!wikiCheck[title]) wikiCheck[title] = fetch("https://en.wikipedia.org/w/api.php?action=query&redirects=1&prop=pageprops&ppprop=disambiguation&format=json&origin=*&titles=" + encodeURIComponent(title))
+    .then(r => r.json()).then(d => { const pg = Object.values((d.query || {}).pages || {})[0]; return !!pg && pg.missing === undefined && !(pg.pageprops && "disambiguation" in pg.pageprops); })
+    .catch(() => true);
+  return wikiCheck[title];
+}
+const wikiCtl = L.control({ position: "bottomleft" });
+wikiCtl.onAdd = () => { const d = L.DomUtil.create("div", "wikibox"); d.hidden = true; L.DomEvent.disableClickPropagation(d); return d; };
+wikiCtl.addTo(map);
+let wikiToken = 0;
+async function showWiki(f) {
+  const p = f.properties || {}, box = wikiCtl.getContainer(); if (!p.NAME || !box) return;
+  const my = ++wikiToken, y = currentYear, title = wikiTitle(p.NAME, y);
+  const html = (href, label) => `<b>${esc(p.NAME)}</b> · ${y}<br><a href="${href}" target="_blank" rel="noopener">${esc(label)} ↗</a>`;
+  box.hidden = false; box.innerHTML = html(wikiUrl(title), "Wikipedia: " + title);
+  if (!(await wikiOk(title)) && my === wikiToken) box.innerHTML = html(wikiSearchUrl(p.NAME, y), "Search Wikipedia for " + stripPar(p.NAME));
+}
+
+listSel();
+listCustom();
+buildSlider(2025);
+render();
+</script>
+</body>
+</html>
