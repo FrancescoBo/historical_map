@@ -1,2 +1,5 @@
-Mappa storica 1850-2025 (passo 5 anni) - file unico (mappe compresse + testi verificati).
-Carica index.html e .nojekyll nella radice del repository; GitHub Pages serve index.html. Non serve la cartella data/.
+Mappa storica 1800-2025 (31 dicembre di ogni quinto anno, controllo di fatto).
+Carica index.html (e .nojekyll) nella radice del repository FrancescoBo/historical_map, ramo main:
+https://github.com/FrancescoBo/historical_map/upload/main
+Poi attendi il segno verde in Actions e apri https://francescobo.github.io/historical_map/ in una finestra privata.
+1800-1845: solo Nord America (+ Caraibi, America Centrale); il resto del mondo e' grigio "Not yet researched".
