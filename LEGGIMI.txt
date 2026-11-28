@@ -1,5 +1,10 @@
-Mappa storica 1800-2025 (31 dicembre di ogni quinto anno, controllo di fatto).
-Carica index.html (e .nojekyll) nella radice del repository FrancescoBo/historical_map, ramo main:
-https://github.com/FrancescoBo/historical_map/upload/main
-Poi attendi il segno verde in Actions e apri https://francescobo.github.io/historical_map/ in una finestra privata.
-1800-1845: solo Nord America (+ Caraibi, America Centrale); il resto del mondo e' grigio "Not yet researched".
+Mappa storica 1800-2025 (passo 5 anni) - file unico (mappe compresse + testi verificati).
+Novita': Nord America 1800-1905 con il criterio "controllo effettivo" (USA, Messico/America Centrale, Canada, Terranova, Russian America);
+1910-2025 invariati. Salto noto 1905 -> 1910 (vedi storia/REGISTRO_NORD_AMERICA.md).
+
+Caricamento su GitHub Pages (repo FrancescoBo/historical_map, branch main, radice):
+1. Estrai questo zip.
+2. Copia index.html e .nojekyll (file nascosto) nella cartella locale del repository, sostituendo il vecchio index.html.
+3. In GitHub Desktop: controlla che compaiano le modifiche a index.html (e .nojekyll se nuovo), scrivi un messaggio (es. "Nord America 1800-1905 controllo effettivo"), Commit to main, poi Push origin.
+4. Dopo 1-2 minuti ricarica https://francescobo.github.io/historical_map/ (Ctrl+F5) e prova gli anni 1800, 1845, 1870, 1905.
+Non serve la cartella data/.
